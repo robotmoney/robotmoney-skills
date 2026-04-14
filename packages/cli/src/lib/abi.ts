@@ -43,17 +43,77 @@ export const VAULT_ABI = [
     ],
   },
 
-  // Custom errors
+  // RobotMoneyVault custom errors
   { type: 'error', name: 'TVLCapExceeded', inputs: [] },
   { type: 'error', name: 'PerDepositCapExceeded', inputs: [] },
   { type: 'error', name: 'VaultShutdown', inputs: [] },
   { type: 'error', name: 'NoActiveAdapters', inputs: [] },
-  { type: 'error', name: 'EnforcedPause', inputs: [] },
-  { type: 'error', name: 'ExpectedPause', inputs: [] },
   { type: 'error', name: 'InvalidFee', inputs: [] },
   { type: 'error', name: 'InvalidParam', inputs: [] },
   { type: 'error', name: 'InvalidCap', inputs: [] },
   { type: 'error', name: 'ZeroAddress', inputs: [] },
+
+  // OpenZeppelin Pausable
+  { type: 'error', name: 'EnforcedPause', inputs: [] },
+  { type: 'error', name: 'ExpectedPause', inputs: [] },
+
+  // OpenZeppelin ERC-4626 (v5)
+  {
+    type: 'error',
+    name: 'ERC4626ExceededMaxDeposit',
+    inputs: [
+      { name: 'receiver', type: 'address' },
+      { name: 'assets', type: 'uint256' },
+      { name: 'max', type: 'uint256' },
+    ],
+  },
+  {
+    type: 'error',
+    name: 'ERC4626ExceededMaxMint',
+    inputs: [
+      { name: 'receiver', type: 'address' },
+      { name: 'shares', type: 'uint256' },
+      { name: 'max', type: 'uint256' },
+    ],
+  },
+  {
+    type: 'error',
+    name: 'ERC4626ExceededMaxWithdraw',
+    inputs: [
+      { name: 'owner', type: 'address' },
+      { name: 'assets', type: 'uint256' },
+      { name: 'max', type: 'uint256' },
+    ],
+  },
+  {
+    type: 'error',
+    name: 'ERC4626ExceededMaxRedeem',
+    inputs: [
+      { name: 'owner', type: 'address' },
+      { name: 'shares', type: 'uint256' },
+      { name: 'max', type: 'uint256' },
+    ],
+  },
+
+  // OpenZeppelin ERC-20 (v5)
+  {
+    type: 'error',
+    name: 'ERC20InsufficientBalance',
+    inputs: [
+      { name: 'sender', type: 'address' },
+      { name: 'balance', type: 'uint256' },
+      { name: 'needed', type: 'uint256' },
+    ],
+  },
+  {
+    type: 'error',
+    name: 'ERC20InsufficientAllowance',
+    inputs: [
+      { name: 'spender', type: 'address' },
+      { name: 'allowance', type: 'uint256' },
+      { name: 'needed', type: 'uint256' },
+    ],
+  },
 ] as const;
 
 export const USDC_ABI = [
