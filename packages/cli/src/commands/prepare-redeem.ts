@@ -5,6 +5,7 @@ import { VAULT_ABI } from '../lib/abi.js';
 import { createRpcClient } from '../lib/rpc.js';
 import { emitJson, formatShares, formatUsdc, parseShares } from '../lib/format.js';
 import { simulateSequence } from '../lib/simulate.js';
+import { checkGasBudget } from '../lib/gas.js';
 import type { GlobalFlags } from '../lib/args.js';
 
 export interface PrepareRedeemOptions {
@@ -72,6 +73,14 @@ export async function prepareRedeem(
   if (sharesRaw === 0n) warnings.push('User has 0 rmUSDC shares to redeem.');
 
   const simulation = await simulateSequence(client, transactions, options.userAddress);
+
+  const gasCheck = await checkGasBudget(
+    client,
+    options.userAddress,
+    BigInt(simulation.gasEstimate || '0'),
+  );
+  if (gasCheck.error) warnings.push(gasCheck.error);
+  else if (gasCheck.warning) warnings.push(gasCheck.warning);
 
   emitJson(
     {

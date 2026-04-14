@@ -13,6 +13,9 @@ export function makeMockClient(handler: MockReadHandler): PublicClient {
     }) as PublicClient['readContract'],
     getBlockNumber: vi.fn(async () => 18234567n) as PublicClient['getBlockNumber'],
     estimateGas: vi.fn(async () => 200000n) as PublicClient['estimateGas'],
+    // Default: plenty of ETH, moderate gas price — callers can override via spies
+    getBalance: vi.fn(async () => 10n ** 18n) as PublicClient['getBalance'],
+    getGasPrice: vi.fn(async () => 10n ** 9n) as PublicClient['getGasPrice'],
   };
   return client as PublicClient;
 }

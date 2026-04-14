@@ -5,6 +5,7 @@ import { VAULT_ABI } from '../lib/abi.js';
 import { createRpcClient } from '../lib/rpc.js';
 import { emitJson, formatShares, formatUsdc, parseUsdc } from '../lib/format.js';
 import { simulateSequence } from '../lib/simulate.js';
+import { checkGasBudget } from '../lib/gas.js';
 import type { GlobalFlags } from '../lib/args.js';
 
 export interface PrepareWithdrawOptions {
@@ -66,6 +67,14 @@ export async function prepareWithdraw(
   if (paused) warnings.push('Vault is paused — withdraw is temporarily disabled.');
 
   const simulation = await simulateSequence(client, transactions, options.userAddress);
+
+  const gasCheck = await checkGasBudget(
+    client,
+    options.userAddress,
+    BigInt(simulation.gasEstimate || '0'),
+  );
+  if (gasCheck.error) warnings.push(gasCheck.error);
+  else if (gasCheck.warning) warnings.push(gasCheck.warning);
 
   emitJson(
     {
