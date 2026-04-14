@@ -8,6 +8,9 @@ import { getApy } from './commands/get-apy.js';
 import { prepareDeposit } from './commands/prepare-deposit.js';
 import { prepareRedeem } from './commands/prepare-redeem.js';
 import { prepareWithdraw } from './commands/prepare-withdraw.js';
+import { executeDeposit } from './commands/execute-deposit.js';
+import { executeRedeem } from './commands/execute-redeem.js';
+import { executeWithdraw } from './commands/execute-withdraw.js';
 import { createWallet } from './commands/create-wallet.js';
 
 interface RawGlobalOpts {
@@ -127,6 +130,90 @@ export function buildProgram(): Command {
             userAddress: addressSchema.parse(opts.userAddress),
             amount: amountSchema.parse(opts.amount),
             receiver: addressSchema.parse(opts.receiver),
+          }),
+        ),
+    );
+
+  attachGlobalFlags(program.command('execute-deposit'))
+    .description('Sign and broadcast a deposit end-to-end via an OWS wallet')
+    .requiredOption('--amount <usdc>', 'USDC amount to deposit (decimal)')
+    .option('--wallet <name>', 'OWS wallet name (optional if only one wallet exists locally)')
+    .option('--passphrase <string>', 'OWS passphrase (or set OWS_PASSPHRASE env)')
+    .option('--storage-path <dir>', 'override the OWS vault directory')
+    .option('--receiver <address>', 'EVM address to receive rmUSDC (defaults to the wallet address)')
+    .action(
+      async (
+        opts: RawGlobalOpts & {
+          amount: string;
+          wallet?: string;
+          passphrase?: string;
+          storagePath?: string;
+          receiver?: string;
+        },
+      ) =>
+        runOrDie(() =>
+          executeDeposit(parseGlobal(opts), {
+            amount: amountSchema.parse(opts.amount),
+            ...(opts.wallet !== undefined ? { wallet: opts.wallet } : {}),
+            ...(opts.passphrase !== undefined ? { passphrase: opts.passphrase } : {}),
+            ...(opts.storagePath !== undefined ? { storagePath: opts.storagePath } : {}),
+            ...(opts.receiver !== undefined ? { receiver: addressSchema.parse(opts.receiver) } : {}),
+          }),
+        ),
+    );
+
+  attachGlobalFlags(program.command('execute-redeem'))
+    .description('Sign and broadcast a redeem end-to-end via an OWS wallet')
+    .requiredOption('--shares <amount>', 'shares to redeem, or "max"')
+    .option('--wallet <name>', 'OWS wallet name (optional if only one wallet exists locally)')
+    .option('--passphrase <string>', 'OWS passphrase (or set OWS_PASSPHRASE env)')
+    .option('--storage-path <dir>', 'override the OWS vault directory')
+    .option('--receiver <address>', 'EVM address to receive USDC (defaults to the wallet address)')
+    .action(
+      async (
+        opts: RawGlobalOpts & {
+          shares: string;
+          wallet?: string;
+          passphrase?: string;
+          storagePath?: string;
+          receiver?: string;
+        },
+      ) =>
+        runOrDie(() =>
+          executeRedeem(parseGlobal(opts), {
+            shares: sharesSchema.parse(opts.shares),
+            ...(opts.wallet !== undefined ? { wallet: opts.wallet } : {}),
+            ...(opts.passphrase !== undefined ? { passphrase: opts.passphrase } : {}),
+            ...(opts.storagePath !== undefined ? { storagePath: opts.storagePath } : {}),
+            ...(opts.receiver !== undefined ? { receiver: addressSchema.parse(opts.receiver) } : {}),
+          }),
+        ),
+    );
+
+  attachGlobalFlags(program.command('execute-withdraw'))
+    .description('Sign and broadcast a withdrawal end-to-end via an OWS wallet')
+    .requiredOption('--amount <usdc>', 'net USDC amount to receive (decimal)')
+    .option('--wallet <name>', 'OWS wallet name (optional if only one wallet exists locally)')
+    .option('--passphrase <string>', 'OWS passphrase (or set OWS_PASSPHRASE env)')
+    .option('--storage-path <dir>', 'override the OWS vault directory')
+    .option('--receiver <address>', 'EVM address to receive USDC (defaults to the wallet address)')
+    .action(
+      async (
+        opts: RawGlobalOpts & {
+          amount: string;
+          wallet?: string;
+          passphrase?: string;
+          storagePath?: string;
+          receiver?: string;
+        },
+      ) =>
+        runOrDie(() =>
+          executeWithdraw(parseGlobal(opts), {
+            amount: amountSchema.parse(opts.amount),
+            ...(opts.wallet !== undefined ? { wallet: opts.wallet } : {}),
+            ...(opts.passphrase !== undefined ? { passphrase: opts.passphrase } : {}),
+            ...(opts.storagePath !== undefined ? { storagePath: opts.storagePath } : {}),
+            ...(opts.receiver !== undefined ? { receiver: addressSchema.parse(opts.receiver) } : {}),
           }),
         ),
     );
