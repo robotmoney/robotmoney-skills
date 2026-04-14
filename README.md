@@ -214,7 +214,7 @@ pnpm --filter @robotmoney/cli dev -- get-vault --chain base --rpc-url $RPC_URL
 
 - **Website:** https://robotmoney.net
 - **Vault on BaseScan:** https://basescan.org/address/0x4f835c9f54bcf17daf9040f60cb72951ccbb49dd
-- **Main repo (contracts + server):** https://github.com/robotmoney/robo-money
+- **npm package:** https://www.npmjs.com/package/@robotmoney/cli
 - **Open Wallet Standard:** https://openwallet.sh/
 
 ## License
