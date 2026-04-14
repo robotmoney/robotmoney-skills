@@ -16,25 +16,25 @@ npm install @robotmoney/cli
 
 ## Quickstart
 
+### End-to-end via OWS (no external wallet needed)
+
 ```bash
-# Read vault state
-npx @robotmoney/cli get-vault --chain base
+# 1. Bootstrap a wallet
+npx @robotmoney/cli create-wallet --label my-agent
 
-# Get blended APY across Morpho, Aave, Compound
-npx @robotmoney/cli get-apy --chain base
+# 2. Fund the printed address with USDC + a small amount of ETH for gas on Base
 
-# Prepare an unsigned deposit (includes USDC approval automatically)
+# 3. Execute the deposit (signs + broadcasts via OWS, returns tx hashes)
+npx @robotmoney/cli execute-deposit --chain base --wallet my-agent --amount 100
+```
+
+### Prepare-only (you sign with your own wallet)
+
+```bash
 npx @robotmoney/cli prepare-deposit \
   --chain base \
   --user-address 0xYourAddress \
   --amount 100 \
-  --receiver 0xYourAddress
-
-# Prepare a one-tx redeem
-npx @robotmoney/cli prepare-redeem \
-  --chain base \
-  --user-address 0xYourAddress \
-  --shares max \
   --receiver 0xYourAddress
 ```
 
@@ -50,8 +50,13 @@ npx @robotmoney/cli prepare-redeem \
 | `prepare-deposit` | Unsigned deposit tx with auto-included USDC approval |
 | `prepare-redeem` | Unsigned one-tx redeem; accepts `--shares max` |
 | `prepare-withdraw` | Unsigned withdrawal by target net USDC amount |
+| `execute-deposit` | Sign + broadcast a deposit end-to-end via an OWS wallet |
+| `execute-redeem` | Sign + broadcast a redeem end-to-end via an OWS wallet |
+| `execute-withdraw` | Sign + broadcast a withdrawal end-to-end via an OWS wallet |
 
 ## RPC configuration
+
+The CLI uses a built-in fallback pool of 5 free Base mainnet endpoints by default, with automatic retry across endpoints when any one rate-limits. Override with:
 
 ```bash
 # Flag (highest priority)
@@ -61,7 +66,14 @@ npx @robotmoney/cli get-vault --chain base --rpc-url https://base-mainnet.g.alch
 RPC_URL=https://base-mainnet.g.alchemy.com/v2/<key> npx @robotmoney/cli get-vault --chain base
 ```
 
-Without a flag or env var, falls back to `https://base.llamarpc.com` (rate-limited — configure your own RPC for anything beyond occasional calls).
+## OWS wallet + passphrase
+
+`execute-*` commands use [Open Wallet Standard](https://openwallet.sh/) to sign.
+
+- `--wallet <name>` — explicit wallet name. If omitted and only one wallet exists in `~/.ows/wallets/`, it's auto-picked.
+- `--passphrase <string>` — passphrase flag (shell history hazard)
+- `OWS_PASSPHRASE` env var — clean passphrase path for agents
+- Otherwise, the CLI prompts interactively on a TTY
 
 ## Full docs
 

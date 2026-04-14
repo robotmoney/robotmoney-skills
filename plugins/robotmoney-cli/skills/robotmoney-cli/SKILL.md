@@ -6,7 +6,8 @@ description: >
   check a user's rmUSDC balance or position value ("What's my balance?", "How much is my position worth?");
   deposit USDC into the vault ("Deposit 100 USDC into Robot Money", "Put some USDC into rmUSDC");
   withdraw from the vault ("Withdraw my USDC from rmUSDC", "Redeem all my rmUSDC");
-  bootstrap a new wallet for an agent or machine that doesn't have one yet ("Create a wallet for this agent");
+  bootstrap a new wallet for an agent or machine that doesn't have one yet ("I want to deposit but don't have a wallet", "Create a wallet for me and deposit 100 USDC");
+  actually send a transaction end-to-end ("Execute the deposit", "Actually deposit it, don't just prepare");
   prepare or simulate any Robot Money vault transaction.
 ---
 
@@ -14,7 +15,7 @@ description: >
 
 > **Experimental (pre-v1.0)** — Command syntax, response schemas, and available operations may change. Always verify critical outputs independently.
 
-Query the Robot Money stablecoin vault and build unsigned transactions. All commands output JSON to stdout. No private keys are ever held by the CLI — the CLI prepares transactions; the caller\u2019s wallet signs them externally. For agents without a wallet yet, `create-wallet` bootstraps one via Open Wallet Standard (OWS).
+Query the Robot Money stablecoin vault and either (a) build unsigned transactions for the caller to sign with their own wallet, or (b) sign and broadcast end-to-end via an Open Wallet Standard (OWS) wallet. All commands output JSON to stdout. The CLI never holds private keys — OWS does, under its policy-gated signing flow.
 
 ```bash
 npx @robotmoney/cli <command> [options]
@@ -24,14 +25,33 @@ npx @robotmoney/cli <command> [options]
 
 **Vault:** `0x4f835c9f54bcf17daf9040f60cb72951ccbb49dd` on Base — a multi-adapter ERC-4626 vault that splits USDC across Morpho Gauntlet USDC Prime, Aave V3, and Compound V3 by dynamic equal weight.
 
+**RPC:** defaults to a built-in pool of 5 free Base endpoints with automatic fallback. Users don't need their own RPC URL. Pass `--rpc-url <url>` or set `RPC_URL` if you want to override.
+
 ## Target users
 
-This skill is for **AI agents and autonomous machines** — anything with a wallet that wants diversified USDC yield. Works the same whether you're a Claude Code session, a Cursor agent, an autonomous trading bot, an IoT device, or a peaq-network machine. Not a retail-wallet UX — all output is JSON and meant to be parsed, not read by humans.
+This skill is for **AI agents and autonomous machines** — anything with a wallet (or the need for one) that wants diversified USDC yield. Works the same whether you're a Claude Code session, a Cursor agent, an autonomous trading bot, an IoT device, or a peaq-network machine. Not a retail-wallet UX — all output is JSON and meant to be parsed, not read by humans.
+
+## Deciding between `prepare-*` and `execute-*`
+
+The CLI has two sign-time models:
+
+- **`prepare-*`** — returns unsigned calldata as JSON. Use when the caller has their own wallet/signer (Coinbase Smart Wallet, Safe, Fireblocks, hardware, etc.) and will sign and broadcast externally. The CLI never touches keys.
+- **`execute-*`** — signs **and** broadcasts end-to-end via OWS. Use when the caller has run `create-wallet` (or has any OWS keystore in `~/.ows/wallets/`) and wants the CLI to finish the job. Returns confirmed transaction hashes.
+
+### If the user asks to deposit/withdraw and has not provided a wallet address
+
+1. Ask: *"Do you already have a wallet, or should I create a new one for you via Open Wallet Standard?"*
+2. **If no wallet** → run `create-wallet`, print the generated address + funding instructions (USDC **and** a small amount of ETH for gas on Base), then suggest `execute-*` for the deposit once funds land
+3. **If they have one** → ask for the address, then use `prepare-*` — they'll sign externally
+
+### If the user just wants a transaction prepared (not broadcast)
+
+Use `prepare-*` regardless of whether a wallet exists locally. Return the unsigned calldata and explain they need to sign it with their wallet.
 
 ## Response Schemas
 
 - **[Read commands](references/read.md)** — exact JSON shapes for `health-check`, `get-vault`, `get-balance`, `get-apy`
-- **[Write commands](references/write.md)** — exact JSON shapes for `prepare-deposit`, `prepare-redeem`, `prepare-withdraw`, `create-wallet`
+- **[Write commands](references/write.md)** — exact JSON shapes for `prepare-*`, `execute-*`, `create-wallet`
 
 ## Quick Reference
 
@@ -45,40 +65,55 @@ npx @robotmoney/cli get-vault    --chain base [--verbose]
 npx @robotmoney/cli get-balance  --chain base --user-address 0x...
 npx @robotmoney/cli get-apy      --chain base
 
-# Write — prepare unsigned transactions (simulation runs automatically)
+# Prepare — unsigned calldata for external signing
 npx @robotmoney/cli prepare-deposit  --chain base --user-address 0x... --amount 100 --receiver 0x...
 npx @robotmoney/cli prepare-redeem   --chain base --user-address 0x... --shares max --receiver 0x...
 npx @robotmoney/cli prepare-withdraw --chain base --user-address 0x... --amount 50 --receiver 0x...
+
+# Execute — sign + broadcast end-to-end via OWS (wallet name optional if only one exists)
+npx @robotmoney/cli execute-deposit  --chain base --wallet <name> --amount 100
+npx @robotmoney/cli execute-redeem   --chain base --wallet <name> --shares max
+npx @robotmoney/cli execute-withdraw --chain base --wallet <name> --amount 50
 ```
 
-## Wallet Onboarding
+## Wallet & passphrase resolution (execute-*)
 
-If the caller (agent or machine) does **not** already have a wallet:
+- `--wallet <name>` explicit → use that OWS wallet
+- Else if exactly one wallet exists in `~/.ows/wallets/` → auto-pick it
+- Else → error with list of available wallets
 
-```bash
-npx @robotmoney/cli create-wallet --label "my-agent"
-```
+Passphrase:
+- `--passphrase <string>` (highest priority; visible in shell history)
+- `OWS_PASSPHRASE` environment variable (cleanest for agents)
+- Interactive TTY prompt (default for humans)
 
-This bootstraps a wallet via [Open Wallet Standard](https://openwallet.sh/) (OWS) — an open-source, cross-chain wallet standard designed for AI agents, with policy-gated signing. The keystore is encrypted locally in `~/.ows/wallets/` (or a custom path). The CLI itself never holds keys — OWS does.
+## Funding a newly-created wallet
 
-If the caller **already has a wallet** (Coinbase Smart Wallet, Safe, Fireblocks, hardware wallet, Claude Code signer, etc.), skip `create-wallet`. Run `prepare-*` commands directly — the CLI returns unsigned calldata; sign and broadcast it with the caller\u2019s wallet.
+`create-wallet` returns a new EVM address. Before running `execute-*`, fund it with:
+1. **USDC** on Base — the amount you want to deposit. Per-deposit cap is 100 USDC at soft launch.
+2. **A small amount of ETH on Base for gas** — roughly $0.01–0.05 covers ~10 vault transactions. Without ETH, every `execute-*` will fail at gas check.
 
-## Write Workflow: Prepare → Present
+Funding paths: Coinbase Base withdrawal, https://bridge.base.org, or any CEX/DEX that supports Base.
 
-Every write operation follows two steps. Simulation runs automatically inside `prepare-*`.
+## Write Workflow
 
-1. **Prepare** — run a `prepare-*` command. The CLI handles USDC decimals, allowances, approvals, and simulation automatically. Returns `{operation, simulation}` where `operation` has transactions/summary/warnings and `simulation` has execution results, gas, and a `preview` of expected shares/assets.
-2. **Present** — show the summary, the list of unsigned transactions, simulation results, and any warnings to the user/caller. If `simulation.allSucceeded` is false, diagnose before presenting.
+**For `prepare-*`:**
+1. Run the command. Returns `{operation, simulation}`. `simulation.allSucceeded` should be `true` for a healthy prepare.
+2. Present `operation.summary`, `operation.transactions`, and `simulation.preview` to the caller.
+3. Caller signs and broadcasts externally. Approve + deposit is a two-tx sequence — broadcast them in order.
 
-Then the caller\u2019s wallet signs and broadcasts (externally — the CLI itself does not sign).
+**For `execute-*`:**
+1. Run the command. CLI builds, signs, broadcasts, and waits for on-chain confirmation.
+2. Returns a `transactions` array with each tx's `hash`, `status`, and `blockNumber`. `status` will be `"confirmed"` when everything succeeded.
+3. Broadcast takes ~4–10 seconds end-to-end on Base (2-second blocks, one confirmation per tx). Don't worry about the delay.
 
-## Simulation Failures
+## Simulation Failures (prepare-*)
 
 | Revert | Cause | What to do |
 |--------|-------|------------|
-| `ERC20InsufficientAllowance` | USDC allowance for the vault is below the deposit amount | Expected on the second tx of an approve+deposit pair (approval not mined yet). Broadcast approve first, then deposit. |
-| `ERC20InsufficientBalance` | User lacks USDC | Fund the wallet first |
-| `ERC4626ExceededMaxDeposit` | Deposit exceeds the vault's max for this receiver | Reduce amount; check TVL and per-deposit caps |
+| `ERC20InsufficientAllowance` | USDC allowance for the vault is below the deposit amount | With `prepare-deposit`, simulation pre-applies the approval via state override, so this shouldn't appear. If it does, it's from a different code path — check the caller's approval flow. |
+| `ERC20InsufficientBalance` | User lacks USDC | Fund the wallet with USDC on Base first |
+| `ERC4626ExceededMaxDeposit` | Deposit exceeds vault's max for this receiver | Reduce amount; check TVL and per-deposit caps |
 | `ERC4626ExceededMaxWithdraw` | Withdraw amount exceeds the owner's current balance | Use `prepare-redeem --shares max` to exit the full position |
 | `ERC4626ExceededMaxRedeem` | Redeem shares exceed the owner's share balance | Use `--shares max`, which reads balanceOf automatically |
 | `TVLCapExceeded` | Deposit would exceed vault TVL cap (500 USDC at soft launch) | Reduce amount or wait for cap raise |
@@ -87,7 +122,7 @@ Then the caller\u2019s wallet signs and broadcasts (externally — the CLI itsel
 | `EnforcedPause` | Vault is paused (operational emergency) | Wait for unpause; withdrawals may still be available |
 | `NoActiveAdapters` | No adapters are active | Operator attention required before any deposit |
 
-**Why the approve+deposit simulation shows a failure on the second tx:** `eth_call` runs against the latest confirmed block, so the pending approval isn't applied when the vault.deposit call is simulated. This is expected. The transactions are correct — broadcast them sequentially and they will succeed.
+**Note on expected failures:** If `simulation.failures[i].expected === true`, that failure is an artifact of simulating a dependent tx at latest-block state and is not a real error. The `allSucceeded` field already filters these out.
 
 ## Vault mechanics
 

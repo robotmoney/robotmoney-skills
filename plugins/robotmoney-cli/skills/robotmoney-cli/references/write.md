@@ -1,5 +1,10 @@
 # Write command response schemas
 
+Two families of write commands:
+
+- **`prepare-*`** returns unsigned calldata. The caller signs and broadcasts externally.
+- **`execute-*`** signs and broadcasts end-to-end via OWS. Returns confirmed transaction hashes.
+
 Every `prepare-*` command returns the same top-level shape:
 
 ```json
@@ -146,6 +151,68 @@ the shares required to produce that net amount after the exit fee.
   }
 }
 ```
+
+---
+
+## `execute-*` shape
+
+Every `execute-*` command returns:
+
+```json
+{
+  "operation": {
+    "type": "deposit" | "redeem" | "withdraw",
+    "summary": "...",
+    "wallet": { "name": "my-agent", "address": "0x..." },
+    "receiver": "0x..."
+  },
+  "transactions": [
+    {
+      "hash": "0xabc...",
+      "description": "USDC.approve(vault, 100000000)",
+      "status": "confirmed",
+      "blockNumber": "44700123",
+      "gasUsed": "56240"
+    },
+    {
+      "hash": "0xdef...",
+      "description": "vault.deposit(100000000, 0x...)",
+      "status": "confirmed",
+      "blockNumber": "44700124",
+      "gasUsed": "1804352"
+    }
+  ],
+  "preview": { /* command-specific — e.g. receiverShareBalance, netUsdc, feeUsdc */ },
+  "warnings": []
+}
+```
+
+- `transactions[*].status` is `"confirmed"`, `"reverted"`, or `"pending"` (the latter when the 120s wait timed out).
+- On failure (pre-broadcast gas estimate revert, insufficient ETH, wallet not found, etc.) the command exits non-zero with a JSON error on stderr.
+
+### `execute-deposit`
+
+```bash
+npx @robotmoney/cli execute-deposit --chain base --wallet my-agent --amount 100
+```
+
+Optional flags: `--receiver <address>` (defaults to the wallet address), `--passphrase <string>`, `--storage-path <dir>`.
+
+### `execute-redeem`
+
+```bash
+npx @robotmoney/cli execute-redeem --chain base --wallet my-agent --shares max
+```
+
+`--shares` accepts a decimal or the literal string `max`.
+
+### `execute-withdraw`
+
+```bash
+npx @robotmoney/cli execute-withdraw --chain base --wallet my-agent --amount 50
+```
+
+`--amount` is the **net** USDC the caller wants to receive after the exit fee.
 
 ---
 

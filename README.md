@@ -36,42 +36,60 @@ Works with Cursor, Codex, any MCP-compatible agent that can invoke a shell, or d
 | `get-vault` | Get full vault state: caps, fees, share price, totals; `--verbose` for per-adapter breakdown |
 | `get-balance` | Get a user's rmUSDC balance and USDC-equivalent value |
 | `get-apy` | Get blended APY across Morpho, Aave, and Compound |
-| **WRITE** | |
+| **PREPARE** (unsigned calldata — caller signs externally) | |
 | `prepare-deposit` | Prepare an unsigned deposit with auto-included USDC approval |
 | `prepare-redeem` | Prepare an unsigned synchronous redeem (one-tx withdrawal, `--shares max` supported) |
 | `prepare-withdraw` | Prepare an unsigned withdrawal by target net USDC amount |
+| **EXECUTE** (sign + broadcast end-to-end via OWS) | |
+| `execute-deposit` | Sign and broadcast a deposit via an OWS wallet — returns confirmed tx hashes |
+| `execute-redeem` | Sign and broadcast a redeem via an OWS wallet |
+| `execute-withdraw` | Sign and broadcast a withdrawal via an OWS wallet |
 
 See [`plugins/robotmoney-cli/skills/robotmoney-cli/SKILL.md`](plugins/robotmoney-cli/skills/robotmoney-cli/SKILL.md) for the skill definition and `references/` for response schemas.
 
-## Example — full deposit flow
+## Example — end-to-end deposit via OWS (no external wallet needed)
 
 ```bash
-# 1. Check vault status
-npx @robotmoney/cli get-vault --chain base
+# 1. Bootstrap a wallet
+npx @robotmoney/cli create-wallet --label my-agent
 
-# 2. (optional) Create a wallet if you don't have one
-npx @robotmoney/cli create-wallet
+# 2. Fund the printed address with USDC + a small amount of ETH for gas on Base
+#    (Coinbase withdrawal, https://bridge.base.org, or any Base-capable CEX/DEX)
 
-# 3. Check current APY
-npx @robotmoney/cli get-apy --chain base
+# 3. Execute the deposit — signs + broadcasts + waits for confirmation
+npx @robotmoney/cli execute-deposit \
+  --chain base \
+  --wallet my-agent \
+  --amount 100
 
-# 4. Prepare a 100 USDC deposit (auto-includes USDC approval)
+# 4. Check the new rmUSDC balance
+npx @robotmoney/cli get-balance --chain base --user-address <address from step 1>
+```
+
+## Example — prepare-only (you sign with your own wallet)
+
+```bash
+# 1. Prepare unsigned transactions
 npx @robotmoney/cli prepare-deposit \
   --chain base \
   --user-address 0xYourAddress \
   --amount 100 \
   --receiver 0xYourAddress
 
-# 5. Sign and broadcast the returned transactions with your wallet
+# 2. Sign and broadcast the returned transactions with your wallet
+#    (hardware wallet, Safe, Fireblocks, Coinbase, etc.)
 
-# 6. Check your balance
+# 3. Check your balance
 npx @robotmoney/cli get-balance --chain base --user-address 0xYourAddress
 ```
 
 ## Example — withdraw
 
 ```bash
-# Redeem all shares (one transaction, get USDC immediately minus 0.25% exit fee)
+# OWS-signed one-liner (preferred if you created the wallet via create-wallet)
+npx @robotmoney/cli execute-redeem --chain base --wallet my-agent --shares max
+
+# Or prepare-only (sign externally)
 npx @robotmoney/cli prepare-redeem \
   --chain base \
   --user-address 0xYourAddress \
@@ -104,7 +122,9 @@ The CLI never holds keys. Your wallet signs externally — the CLI only emits un
 
 ## RPC configuration
 
-By default the CLI uses `https://base.llamarpc.com` as a fallback public RPC. This is rate-limited and only suitable for occasional calls. For anything beyond that, configure your own:
+By default the CLI rotates across a built-in pool of 5 free Base mainnet endpoints with automatic failover (via viem's `fallback` transport). Users don't need to know what an RPC URL is — it just works.
+
+To override with your own endpoint (Alchemy, QuickNode, etc.):
 
 ```bash
 # Flag (highest priority)
@@ -119,14 +139,24 @@ RPC_URL=https://base-mainnet.g.alchemy.com/v2/<key> npx @robotmoney/cli get-vaul
 If your agent or machine doesn't have a wallet, run:
 
 ```bash
-npx @robotmoney/cli create-wallet
+npx @robotmoney/cli create-wallet --label my-agent
 ```
 
-This creates an [Open Wallet Standard](https://openwallet.sh/) (OWS) wallet — a cross-chain standard launched by MoonPay in 2026 with backing from PayPal, Base, Circle, Ethereum Foundation, Polygon, and others. Wallets are encrypted locally and use policy-gated signing (the signing engine enforces rules before touching any key material).
+This creates an [Open Wallet Standard](https://openwallet.sh/) (OWS) wallet — a cross-chain standard launched by MoonPay in 2026 with backing from PayPal, Base, Circle, Ethereum Foundation, Polygon, and others. Wallets are encrypted locally in `~/.ows/wallets/` and use policy-gated signing (the signing engine enforces rules before touching any key material).
 
-Fund the wallet with USDC on Base, then use the printed address as `--user-address` and `--receiver` in `prepare-*` commands. Signing the returned transactions through OWS is external for now — direct in-CLI signing (`--wallet <path>`) is on the v0.2 roadmap.
+**Fund the wallet with TWO things** before running `execute-*`:
+- **USDC** on Base — the amount you want to deposit
+- **A small amount of ETH on Base for gas** — ~$0.01–0.05 covers roughly 10 vault transactions
 
-The `@open-wallet-standard/core` SDK is an **optional** dependency and ships native bindings only for darwin/linux x64/arm64. Users who never call `create-wallet` never load it.
+Then run `execute-deposit` (or `execute-redeem` / `execute-withdraw`) to sign and broadcast end-to-end. The CLI reads the keystore via OWS, builds the EIP-1559 envelope, signs via OWS's policy-gated flow, broadcasts to Base, and returns confirmed tx hashes.
+
+```bash
+npx @robotmoney/cli execute-deposit --chain base --wallet my-agent --amount 100
+```
+
+**Passphrase:** pass via `--passphrase <string>`, `OWS_PASSPHRASE` env var, or leave empty and the CLI will prompt interactively.
+
+**Platform support:** OWS ships native bindings for darwin + linux x64/arm64-gnu. Windows and linux-musl users can still use `prepare-*` (which doesn't load OWS), but `create-wallet` and `execute-*` will error at runtime.
 
 ## Contract addresses (Base mainnet)
 
