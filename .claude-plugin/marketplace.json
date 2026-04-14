@@ -1,0 +1,7 @@
+{
+  "name": "robotmoney",
+  "description": "Robot Money skills and tools for AI agents and autonomous machines",
+  "plugins": [
+    { "path": "plugins/robotmoney-cli" }
+  ]
+}
