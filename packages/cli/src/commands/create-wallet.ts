@@ -30,7 +30,7 @@ export async function createWallet(options: CreateWalletOptions = {}): Promise<v
         '   - Bridge: https://bridge.base.org',
         '   - Any CEX/DEX that supports Base withdrawals',
         `3. Prepare a deposit with: robotmoney prepare-deposit --chain base --user-address ${result.address} --amount 100 --receiver ${result.address}`,
-        '4. Pass --wallet <storagePath> to prepare-* commands to sign via OWS policy-gated flow.',
+        '4. Sign the returned transactions via your OWS policy flow and broadcast them to Base.',
       ],
       fundingOptions: [
         { method: 'coinbase-direct', description: 'Withdraw USDC from Coinbase to this address on Base' },

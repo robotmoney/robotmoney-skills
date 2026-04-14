@@ -174,7 +174,7 @@ npx @robotmoney/cli create-wallet [--label my-agent] [--storage-path ./ows] [--p
     "   - Bridge: https://bridge.base.org",
     "   - Any CEX/DEX that supports Base withdrawals",
     "3. Prepare a deposit with: robotmoney prepare-deposit --chain base --user-address 0xAgentAddressHere --amount 100 --receiver 0xAgentAddressHere",
-    "4. Pass --wallet <storagePath> to prepare-* commands to sign via OWS policy-gated flow."
+    "4. Sign the returned transactions via your OWS policy flow and broadcast them to Base."
   ],
   "fundingOptions": [
     { "method": "coinbase-direct", "description": "Withdraw USDC from Coinbase to this address on Base" },
@@ -186,5 +186,5 @@ npx @robotmoney/cli create-wallet [--label my-agent] [--storage-path ./ows] [--p
 
 OWS ships native bindings only for darwin/linux x64/arm64 — Windows and
 linux-musl are not supported as of OWS `1.2.4`. The OWS dependency is
-imported lazily, so users who never run `create-wallet` (or pass `--wallet`)
-never pay the install cost.
+imported lazily, so users who never run `create-wallet` never pay the
+install cost.

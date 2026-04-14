@@ -17,17 +17,13 @@ Autonomous stablecoin yield for AI agents and machines. Deposit USDC into the [R
 /plugin install robotmoney-cli@robotmoney
 ```
 
-### Any other agent runtime
-
-```bash
-npx skills add robotmoney/robotmoney-skills --skill robotmoney-cli
-```
-
-### Direct CLI use (no agent framework)
+### Direct CLI use (any agent runtime, or no framework)
 
 ```bash
 npx @robotmoney/cli <command> --chain base
 ```
+
+Works with Cursor, Codex, any MCP-compatible agent that can invoke a shell, or direct terminal use.
 
 ## What your agent or machine can do
 
@@ -67,7 +63,6 @@ npx @robotmoney/cli prepare-deposit \
   --receiver 0xYourAddress
 
 # 5. Sign and broadcast the returned transactions with your wallet
-#    (or pass --wallet <path> to sign via OWS automatically)
 
 # 6. Check your balance
 npx @robotmoney/cli get-balance --chain base --user-address 0xYourAddress
@@ -95,7 +90,7 @@ Agent / machine
 CLI prepares unsigned tx + runs eth_call simulation
   │  returns JSON with calldata + preview
   ▼
-Caller signs (via own wallet OR via OWS policy-gated signing if --wallet passed)
+Caller signs with their own wallet (externally)
   ▼
 Transaction broadcasts to Base
   ▼
@@ -105,7 +100,7 @@ Vault splits USDC atomically across:
   • Compound V3 cUSDCv3
 ```
 
-The CLI never holds keys. Either your wallet signs externally, or OWS signs with its policy-gated flow — in both cases, the CLI only emits or triggers calldata, it doesn't own secrets.
+The CLI never holds keys. Your wallet signs externally — the CLI only emits unsigned calldata.
 
 ## RPC configuration
 
@@ -127,11 +122,11 @@ If your agent or machine doesn't have a wallet, run:
 npx @robotmoney/cli create-wallet
 ```
 
-This creates an [Open Wallet Standard](https://openwallet.sh/) wallet — a cross-chain standard launched by MoonPay in 2026 with backing from PayPal, Base, Circle, Ethereum Foundation, Polygon, and others. Wallets are encrypted locally and use policy-gated signing (the signing engine enforces rules before touching any key material).
+This creates an [Open Wallet Standard](https://openwallet.sh/) (OWS) wallet — a cross-chain standard launched by MoonPay in 2026 with backing from PayPal, Base, Circle, Ethereum Foundation, Polygon, and others. Wallets are encrypted locally and use policy-gated signing (the signing engine enforces rules before touching any key material).
 
-Once you have a wallet, pass `--wallet <path>` to any `prepare-*` command and the CLI will sign and broadcast automatically.
+Fund the wallet with USDC on Base, then use the printed address as `--user-address` and `--receiver` in `prepare-*` commands. Signing the returned transactions through OWS is external for now — direct in-CLI signing (`--wallet <path>`) is on the v0.2 roadmap.
 
-The `@open-wallet-standard/core` SDK is an **optional** dependency and ships native bindings only for darwin/linux x64/arm64. Users who never call `create-wallet` or `--wallet` never load it.
+The `@open-wallet-standard/core` SDK is an **optional** dependency and ships native bindings only for darwin/linux x64/arm64. Users who never call `create-wallet` never load it.
 
 ## Contract addresses (Base mainnet)
 

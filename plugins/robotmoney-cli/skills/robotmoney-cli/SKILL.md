@@ -14,7 +14,7 @@ description: >
 
 > **Experimental (pre-v1.0)** — Command syntax, response schemas, and available operations may change. Always verify critical outputs independently.
 
-Query the Robot Money stablecoin vault and build unsigned transactions. All commands output JSON to stdout. No private keys needed by default — the CLI prepares transactions; your wallet signs them. Optional `create-wallet` and `--wallet` paths for agents that use Open Wallet Standard (OWS).
+Query the Robot Money stablecoin vault and build unsigned transactions. All commands output JSON to stdout. No private keys are ever held by the CLI — the CLI prepares transactions; the caller\u2019s wallet signs them externally. For agents without a wallet yet, `create-wallet` bootstraps one via Open Wallet Standard (OWS).
 
 ```bash
 npx @robotmoney/cli <command> [options]
@@ -61,7 +61,7 @@ npx @robotmoney/cli create-wallet --label "my-agent"
 
 This bootstraps a wallet via [Open Wallet Standard](https://openwallet.sh/) (OWS) — an open-source, cross-chain wallet standard designed for AI agents, with policy-gated signing. The keystore is encrypted locally in `~/.ows/wallets/` (or a custom path). The CLI itself never holds keys — OWS does.
 
-If the caller **already has a wallet** (Coinbase Smart Wallet, Safe, Fireblocks, hardware wallet, Claude Code signer, etc.), skip `create-wallet`. Run `prepare-*` commands without `--wallet` — the CLI returns unsigned calldata; sign and broadcast it yourself.
+If the caller **already has a wallet** (Coinbase Smart Wallet, Safe, Fireblocks, hardware wallet, Claude Code signer, etc.), skip `create-wallet`. Run `prepare-*` commands directly — the CLI returns unsigned calldata; sign and broadcast it with the caller\u2019s wallet.
 
 ## Write Workflow: Prepare → Present
 
@@ -70,19 +70,22 @@ Every write operation follows two steps. Simulation runs automatically inside `p
 1. **Prepare** — run a `prepare-*` command. The CLI handles USDC decimals, allowances, approvals, and simulation automatically. Returns `{operation, simulation}` where `operation` has transactions/summary/warnings and `simulation` has execution results, gas, and a `preview` of expected shares/assets.
 2. **Present** — show the summary, the list of unsigned transactions, simulation results, and any warnings to the user/caller. If `simulation.allSucceeded` is false, diagnose before presenting.
 
-Then the caller's wallet signs and broadcasts. If `--wallet <path>` was passed, OWS signs via its policy-gated flow.
+Then the caller\u2019s wallet signs and broadcasts (externally — the CLI itself does not sign).
 
 ## Simulation Failures
 
 | Revert | Cause | What to do |
 |--------|-------|------------|
-| `ERC20: transfer amount exceeds allowance` | Approval has not been mined yet (simulation runs at latest block; see note below) | Expected on the second tx of an approve+deposit pair. Broadcast approve first, wait for confirmation, then broadcast deposit. |
+| `ERC20InsufficientAllowance` | USDC allowance for the vault is below the deposit amount | Expected on the second tx of an approve+deposit pair (approval not mined yet). Broadcast approve first, then deposit. |
+| `ERC20InsufficientBalance` | User lacks USDC | Fund the wallet first |
+| `ERC4626ExceededMaxDeposit` | Deposit exceeds the vault's max for this receiver | Reduce amount; check TVL and per-deposit caps |
+| `ERC4626ExceededMaxWithdraw` | Withdraw amount exceeds the owner's current balance | Use `prepare-redeem --shares max` to exit the full position |
+| `ERC4626ExceededMaxRedeem` | Redeem shares exceed the owner's share balance | Use `--shares max`, which reads balanceOf automatically |
 | `TVLCapExceeded` | Deposit would exceed vault TVL cap (500 USDC at soft launch) | Reduce amount or wait for cap raise |
 | `PerDepositCapExceeded` | Single deposit exceeds per-deposit cap (100 USDC at soft launch) | Split into multiple deposits under the cap |
 | `VaultShutdown` | Vault is permanently shut down — deposits disabled | Withdrawals still work; no new deposits accepted |
 | `EnforcedPause` | Vault is paused (operational emergency) | Wait for unpause; withdrawals may still be available |
 | `NoActiveAdapters` | No adapters are active | Operator attention required before any deposit |
-| `insufficient balance` | User lacks USDC | Fund the wallet first |
 
 **Why the approve+deposit simulation shows a failure on the second tx:** `eth_call` runs against the latest confirmed block, so the pending approval isn't applied when the vault.deposit call is simulated. This is expected. The transactions are correct — broadcast them sequentially and they will succeed.
 
