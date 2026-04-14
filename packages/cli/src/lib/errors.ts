@@ -90,10 +90,17 @@ export function extractRevert(err: unknown): { name: string | null; message: str
     const revertData = findRevertData(err);
     if (revertData) {
       try {
-        const decoded = decodeErrorResult({ abi: VAULT_ABI, data: revertData });
+        const decoded = decodeErrorResult({ abi: VAULT_ABI, data: revertData }) as {
+          errorName: string;
+          args?: readonly unknown[];
+        };
         // Legacy Solidity `Error(string)` carries the reason string as arg[0].
         // Prefer that over just the type name.
-        if (decoded.errorName === 'Error' && Array.isArray(decoded.args) && typeof decoded.args[0] === 'string') {
+        if (
+          decoded.errorName === 'Error' &&
+          Array.isArray(decoded.args) &&
+          typeof decoded.args[0] === 'string'
+        ) {
           return {
             name: null,
             message: `Execution reverted: ${decoded.args[0]}`,

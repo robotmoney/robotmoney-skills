@@ -1,10 +1,12 @@
-import type { Address } from 'viem';
-import { encodeFunctionData } from 'viem';
+import type { Address, StateOverride } from 'viem';
+import { encodeFunctionData, maxUint256 } from 'viem';
 import { ADDRESSES } from '../lib/addresses.js';
 import { USDC_ABI, VAULT_ABI } from '../lib/abi.js';
 import { createRpcClient } from '../lib/rpc.js';
 import { emitJson, formatShares, formatUsdc, parseUsdc } from '../lib/format.js';
 import { simulateSequence, type UnsignedTx } from '../lib/simulate.js';
+import { encodeAllowanceValue, usdcAllowanceSlot } from '../lib/storage-slots.js';
+import { checkGasBudget } from '../lib/gas.js';
 import type { GlobalFlags } from '../lib/args.js';
 
 export interface PrepareDepositOptions {
@@ -65,8 +67,8 @@ export async function prepareDeposit(
   });
 
   const warnings: string[] = [];
-  if (shutdown) warnings.push('Vault is shut down — deposits are disabled.');
-  if (paused) warnings.push('Vault is paused — deposits are temporarily disabled.');
+  if (shutdown) warnings.push('Vault is shut down \u2014 deposits are disabled.');
+  if (paused) warnings.push('Vault is paused \u2014 deposits are temporarily disabled.');
   if (amountRaw > perDepositCap) {
     warnings.push(
       `Amount ${formatUsdc(amountRaw)} exceeds perDepositCap ${formatUsdc(perDepositCap)}.`,
@@ -78,7 +80,7 @@ export async function prepareDeposit(
     );
   }
 
-  // previewDeposit works even if simulation would revert on the write path.
+  // previewDeposit is a pure read — works regardless of allowance.
   let sharesToMint: bigint | null = null;
   try {
     sharesToMint = (await client.readContract({
@@ -91,7 +93,38 @@ export async function prepareDeposit(
     sharesToMint = null;
   }
 
-  const simulation = await simulateSequence(client, transactions, options.userAddress);
+  // Build a state override that pre-applies the approval in the simulated
+  // state, so eth_estimateGas on the deposit tx reflects the true cost
+  // (routing across 3 adapters ~ 1.8M gas) rather than reverting at the
+  // allowance check and reporting a tiny number.
+  const overridesByIndex: Record<number, StateOverride> = {};
+  if (needsApproval) {
+    const depositIndex = transactions.length - 1;
+    overridesByIndex[depositIndex] = [
+      {
+        address: addrs.usdc,
+        stateDiff: [
+          {
+            slot: usdcAllowanceSlot(options.userAddress, addrs.vault),
+            value: encodeAllowanceValue(maxUint256),
+          },
+        ],
+      },
+    ];
+  }
+
+  const simulation = await simulateSequence(client, transactions, options.userAddress, {
+    overridesByIndex,
+  });
+
+  // ETH budget check after we have a gas estimate
+  const gasCheck = await checkGasBudget(
+    client,
+    options.userAddress,
+    BigInt(simulation.gasEstimate || '0'),
+  );
+  if (gasCheck.error) warnings.push(gasCheck.error);
+  else if (gasCheck.warning) warnings.push(gasCheck.warning);
 
   emitJson(
     {
@@ -100,7 +133,7 @@ export async function prepareDeposit(
         summary:
           sharesToMint === null
             ? `Deposit ${options.amount} USDC`
-            : `Deposit ${options.amount} USDC → mint ~${formatShares(sharesToMint)} rmUSDC to ${options.receiver}`,
+            : `Deposit ${options.amount} USDC \u2192 mint ~${formatShares(sharesToMint)} rmUSDC to ${options.receiver}`,
         transactions,
         warnings,
       },
