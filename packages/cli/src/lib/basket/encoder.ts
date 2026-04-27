@@ -11,6 +11,7 @@ import {
   PERMIT2,
   UNIVERSAL_ROUTER,
   USDC,
+  WETH,
   type BasketTokenConfig,
   type SingleHopPool,
 } from './constants.js';
@@ -23,17 +24,17 @@ const CMD_V4_SWAP = 0x10;
 
 // ---------- V4 action codes ----------
 const ACT_SWAP_EXACT_IN_SINGLE = 0x06;
+const ACT_SETTLE = 0x0b;
 const ACT_SETTLE_ALL = 0x0c;
+const ACT_TAKE_PORTION = 0x10;
 const ACT_TAKE_ALL = 0x0f;
 
 // ---------- UR magic addresses ----------
-const ADDRESS_MSG_SENDER: Address = '0x0000000000000000000000000000000000000001';
 const ADDRESS_THIS: Address = '0x0000000000000000000000000000000000000002';
 
-// V4 SWAP_EXACT_IN_SINGLE: amountIn=0 means "use the open delta" (credit balance
-// for the input currency). Lets us chain V3 -> V4 atomically without knowing
-// the intermediate amount in advance.
-const V4_OPEN_DELTA = 0n;
+// V3_SWAP_EXACT_IN amountIn marker: when payerIsUser=false, this tells UR to
+// use its current balance of the path's first token instead of a fixed amount.
+const V3_CONTRACT_BALANCE = 1n << 255n;
 
 // ---------- ABIs (minimal slices) ----------
 const UR_EXECUTE_ABI = [
@@ -157,10 +158,27 @@ function encodeSettleAll(currency: Address, maxAmount: bigint): Hex {
   );
 }
 
+function encodeSettle(currency: Address, amount: bigint, payerIsUser: boolean): Hex {
+  return encodeAbiParameters(
+    [{ type: 'address' }, { type: 'uint256' }, { type: 'bool' }],
+    [currency, amount, payerIsUser],
+  );
+}
+
 function encodeTakeAll(currency: Address, minAmount: bigint): Hex {
   return encodeAbiParameters(
     [{ type: 'address' }, { type: 'uint256' }],
     [currency, minAmount],
+  );
+}
+
+// TAKE_PORTION takes a percentage (in bps) of the current credit and sends it
+// to `recipient`. With bips=10000 it takes 100% — effectively "TAKE_ALL but
+// with explicit recipient (so we can route to UR for further processing)".
+function encodeTakePortion(currency: Address, recipient: Address, bips: bigint): Hex {
+  return encodeAbiParameters(
+    [{ type: 'address' }, { type: 'address' }, { type: 'uint256' }],
+    [currency, recipient, bips],
   );
 }
 
@@ -194,12 +212,15 @@ interface LegPlan {
 
 // Build UR commands for buying ONE basket token from USDC.
 // Pure V3 path: a single V3_SWAP_EXACT_IN delivering directly to recipient.
-// Mixed V3->V4 path (ROBOT): V3 swap to UR, then V4_SWAP to recipient.
+// Mixed V3->V4 path (ROBOT): V3 swap into UR with a slippage-tolerant minimum,
+// then V4_SWAP draws exactly that minimum from UR via SETTLE_ALL. Any V3
+// over-delivery stays as residual WETH and is swept at the end.
 function buildBuyLeg(
   token: BasketTokenConfig,
   usdcAmount: bigint,
   minOut: bigint,
   recipient: Address,
+  intermediateMin?: bigint, // V3 leg's minimum output (= V4 leg's amountIn) for mixed paths
 ): LegPlan {
   if (!token.pathTokens || !token.hops) throw new Error(`${token.symbol} missing routing`);
   const hops = token.hops;
@@ -214,41 +235,54 @@ function buildBuyLeg(
     };
   }
 
-  // Mixed V3 then V4 (ROBOT pattern). The V3 leg sends WETH to UR; the V4 leg
-  // pulls UR's WETH balance via SETTLE_ALL and delivers the output to recipient.
   if (
     hops.length === 2 &&
     hops[0]!.version === 'v3' &&
     hops[1]!.version === 'v4' &&
     token.pathTokens.length === 3
   ) {
+    if (intermediateMin === undefined || intermediateMin === 0n) {
+      throw new Error(
+        `${token.symbol}: mixed V3->V4 path requires intermediateMin (V3 leg's minimum output)`,
+      );
+    }
     const v3Hop = hops[0] as Extract<SingleHopPool, { version: 'v3' }>;
     const v4Hop = hops[1] as Extract<SingleHopPool, { version: 'v4' }>;
     const usdcAddr = token.pathTokens[0]!;
     const wethAddr = token.pathTokens[1]!;
     const tokenAddr = token.pathTokens[2]!;
 
+    // V3 leg: USDC -> WETH, recipient = UR. amountOutMin = intermediateMin so
+    // we know UR receives at least that many WETH; if V3 reverts here, the
+    // whole UR.execute reverts before we touch V4.
     const v3Path = encodeV3Path([usdcAddr, wethAddr], [v3Hop.fee]);
     const v3Input = encodeV3SwapExactIn(
       ADDRESS_THIS,
       usdcAmount,
-      /* WETH minOut */ 0n,
+      intermediateMin,
       v3Path,
       /* payerIsUser */ true,
     );
 
+    // V4 leg: WETH -> ROBOT. amountIn = intermediateMin (we know UR has at
+    // least this much WETH). Any over-delivery from V3 stays in UR and gets
+    // swept at the end. amountOutMin = minOut applies the chained slippage.
     const { c0, c1, aIsZero } = sortPair(wethAddr, tokenAddr);
     const v4SwapParam = encodeSwapExactInSingle(
       { currency0: c0, currency1: c1, fee: v4Hop.fee, tickSpacing: v4Hop.tickSpacing, hooks: v4Hop.hooks },
       aIsZero,
-      V4_OPEN_DELTA,
+      intermediateMin,
       minOut,
       '0x',
     );
-    const v4SettleParam = encodeSettleAll(wethAddr, maxUint256);
+    // Important: SETTLE_ALL would pass msgSender() (the user) as payer and pull
+    // WETH via Permit2. We need UR to pay from its own balance (V3 deposited
+    // the WETH into UR), so use SETTLE with payerIsUser=false. amount=0 means
+    // OPEN_DELTA -> pay the full current debt (= V4 swap's input amount).
+    const v4SettleParam = encodeSettle(wethAddr, 0n, /* payerIsUser */ false);
     const v4TakeParam = encodeTakeAll(tokenAddr, minOut);
     const v4Input = encodeV4SwapInput(
-      [ACT_SWAP_EXACT_IN_SINGLE, ACT_SETTLE_ALL, ACT_TAKE_ALL],
+      [ACT_SWAP_EXACT_IN_SINGLE, ACT_SETTLE, ACT_TAKE_ALL],
       [v4SwapParam, v4SettleParam, v4TakeParam],
     );
 
@@ -300,21 +334,29 @@ function buildSellLeg(
       { currency0: c0, currency1: c1, fee: v4Hop.fee, tickSpacing: v4Hop.tickSpacing, hooks: v4Hop.hooks },
       aIsZero,
       amountIn,
-      /* WETH minOut */ 0n,
+      /* WETH minOut on the swap itself; tighter check happens via V3 leg */ 0n,
       '0x',
     );
-    const v4SettleParam = encodeSettleAll(tokenAddr, amountIn);
-    const v4TakeParam = encodeTakeAll(wethAddr, 0n);
+    // SETTLE pays the ROBOT debt by pulling from the user via Permit2.
+    const v4SettleParam = encodeSettle(tokenAddr, amountIn, /* payerIsUser */ true);
+    // TAKE_PORTION takes 100% of the WETH credit and sends it to UR (not the
+    // user; TAKE_ALL would default to msgSender). UR holds WETH for the V3 leg.
+    const v4TakeParam = encodeTakePortion(wethAddr, ADDRESS_THIS, 10_000n);
     const v4Input = encodeV4SwapInput(
-      [ACT_SWAP_EXACT_IN_SINGLE, ACT_SETTLE_ALL, ACT_TAKE_ALL],
+      [ACT_SWAP_EXACT_IN_SINGLE, ACT_SETTLE, ACT_TAKE_PORTION],
       [v4SwapParam, v4SettleParam, v4TakeParam],
     );
 
-    // V3 leg drains UR's WETH balance to recipient.
+    // V3 leg: WETH -> USDC, recipient = user, payerIsUser = false. The
+    // CONTRACT_BALANCE marker (1<<255) tells UR to use its WETH balance.
     const v3Path = encodeV3Path([wethAddr, usdcAddr], [v3Hop.fee]);
-    // amountIn=0 with payerIsUser=false means "swap UR's full balance"; UR's
-    // V3 dispatch resolves 0 to the contract balance for ERC20 inputs.
-    const v3Input = encodeV3SwapExactIn(recipient, 0n, minUsdcOut, v3Path, /* payerIsUser */ false);
+    const v3Input = encodeV3SwapExactIn(
+      recipient,
+      V3_CONTRACT_BALANCE,
+      minUsdcOut,
+      v3Path,
+      /* payerIsUser */ false,
+    );
 
     return {
       commands: [CMD_V4_SWAP, CMD_V3_SWAP_EXACT_IN],
@@ -351,11 +393,11 @@ export function encodeBasketBuy(opts: BasketBuyOptions): { unsignedTx: UnsignedT
   }
 
   const perLegUsdc = totalUsdc / BigInt(BASKET.length);
-  // Allocate the remainder dust to the first leg so amounts sum exactly to total.
   const dust = totalUsdc - perLegUsdc * BigInt(BASKET.length);
 
   const allCommands: number[] = [];
   const allInputs: Hex[] = [];
+  let needsWethSweep = false;
 
   for (let i = 0; i < BASKET.length; i++) {
     const token = BASKET[i]!;
@@ -365,15 +407,35 @@ export function encodeBasketBuy(opts: BasketBuyOptions): { unsignedTx: UnsignedT
     }
     const usdcThisLeg = perLegUsdc + (i === 0 ? dust : 0n);
     const minOut = applySlippage(quote.amountOut, slippageBps);
-    const leg = buildBuyLeg(token, usdcThisLeg, minOut, recipient);
+
+    // For mixed V3->V4 (ROBOT): pull the V3 leg's intermediate output (WETH)
+    // from the quote's hopOutputs and apply slippage. That becomes V3's
+    // amountOutMin AND V4's amountIn. Any V3 over-delivery stays as residual
+    // WETH and is swept at the end.
+    let intermediateMin: bigint | undefined;
+    const hops = token.hops!;
+    const isMixed = hops.some((h) => h.version === 'v4') && hops.some((h) => h.version === 'v3');
+    if (isMixed) {
+      if (!quote.hopOutputs || quote.hopOutputs[0] === undefined || quote.hopOutputs[0] === 0n) {
+        throw new Error(`${token.symbol}: missing intermediate hopOutput for mixed path`);
+      }
+      intermediateMin = applySlippage(quote.hopOutputs[0], slippageBps);
+      needsWethSweep = true;
+    }
+
+    const leg = buildBuyLeg(token, usdcThisLeg, minOut, recipient, intermediateMin);
     allCommands.push(...leg.commands);
     allInputs.push(...leg.inputs);
   }
 
-  // Trailing SWEEP for any USDC dust left in the UR (e.g. dust from a partial
-  // V3 fill, though V3_SWAP_EXACT_IN consumes the full input).
+  // Trailing SWEEPs: USDC dust (rare — V3_SWAP_EXACT_IN consumes the full input)
+  // and WETH residual from any V3-over-delivery on mixed legs (ROBOT).
   allCommands.push(CMD_SWEEP);
   allInputs.push(encodeSweep(USDC, recipient, 0n));
+  if (needsWethSweep) {
+    allCommands.push(CMD_SWEEP);
+    allInputs.push(encodeSweep(WETH, recipient, 0n));
+  }
 
   const data = encodeFunctionData({
     abi: UR_EXECUTE_ABI,

@@ -65,6 +65,10 @@ export interface BasketQuote {
   address: Address;
   amountOut: bigint;
   decimals: number;
+  // For mixed-path tokens (e.g. ROBOT V3->V4): the per-hop output amounts.
+  // hopOutputs[i] is the output of hop i in the path. For purely-V3 single
+  // multihop quotes this is undefined (the V3 quoter doesn't expose it).
+  hopOutputs?: bigint[];
 }
 
 export function encodeV3Path(tokens: readonly Address[], fees: readonly number[]): Hex {
@@ -131,14 +135,17 @@ async function quoteV4Single(
   return sim.result[0];
 }
 
-// Quote a chained path. Consecutive V3 hops are folded into one quoteExactInput
-// call (cheaper than re-entering the quoter). V4 hops are quoted singly.
+// Quote a chained path. Returns final amountOut and per-segment-boundary
+// outputs. Consecutive V3 hops fold into one quoter call; V4 hops are quoted
+// singly. hopOutputs[i] is the running amount AFTER hop i (so the last entry
+// equals the final amountOut).
 async function quoteChainedExactIn(
   client: PublicClient,
   pathTokens: readonly Address[],
   hops: readonly SingleHopPool[],
   amountIn: bigint,
-): Promise<bigint> {
+): Promise<{ finalOut: bigint; hopOutputs: bigint[] }> {
+  const hopOutputs: bigint[] = new Array(hops.length).fill(0n);
   let amount = amountIn;
   let i = 0;
   while (i < hops.length) {
@@ -149,15 +156,20 @@ async function quoteChainedExactIn(
       const segmentTokens = pathTokens.slice(i, j + 1);
       const segmentFees = hops.slice(i, j).map((h) => (h as Extract<SingleHopPool, { version: 'v3' }>).fee);
       amount = await quoteV3Multihop(client, segmentTokens, segmentFees, amount);
+      // We don't have intermediate per-V3-hop amounts from QuoterV2; record the
+      // segment's combined output at its last hop position. Mid-segment entries
+      // stay 0n (callers should treat 0 as "unknown intermediate").
+      hopOutputs[j - 1] = amount;
       i = j;
     } else {
       const tokenIn = pathTokens[i]!;
       const tokenOut = pathTokens[i + 1]!;
       amount = await quoteV4Single(client, tokenIn, tokenOut, hop, amount);
+      hopOutputs[i] = amount;
       i++;
     }
   }
-  return amount;
+  return { finalOut: amount, hopOutputs };
 }
 
 export async function quoteBasketBuy(
@@ -170,7 +182,7 @@ export async function quoteBasketBuy(
       if (!token.pathTokens || !token.hops) {
         throw new Error(`Token ${token.symbol} missing pool routing`);
       }
-      const amountOut = await quoteChainedExactIn(
+      const { finalOut, hopOutputs } = await quoteChainedExactIn(
         client,
         token.pathTokens,
         token.hops,
@@ -179,8 +191,9 @@ export async function quoteBasketBuy(
       return {
         symbol: token.symbol,
         address: token.address,
-        amountOut,
+        amountOut: finalOut,
         decimals: token.decimals,
+        hopOutputs,
       };
     }),
   );
@@ -203,12 +216,18 @@ export async function quoteBasketSell(
       }
       const reverseTokens = [...token.pathTokens].reverse();
       const reverseHops = [...token.hops].reverse();
-      const amountOut = await quoteChainedExactIn(client, reverseTokens, reverseHops, amountIn);
+      const { finalOut, hopOutputs } = await quoteChainedExactIn(
+        client,
+        reverseTokens,
+        reverseHops,
+        amountIn,
+      );
       return {
         symbol: token.symbol,
         address: USDC,
-        amountOut, // USDC out
+        amountOut: finalOut,
         decimals: 6,
+        hopOutputs,
       };
     }),
   );

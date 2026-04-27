@@ -60,12 +60,21 @@ describe('encodeBasketBuy', () => {
   const RECIPIENT = '0x000000000000000000000000000000000000beef' as const;
   const DEADLINE = 1_700_000_000n;
 
-  const fakeQuotes = BASKET.map((t) => ({
-    symbol: t.symbol,
-    address: t.address,
-    amountOut: 100_000_000_000_000_000_000n, // 100 tokens (18 dec) — arbitrary
-    decimals: t.decimals,
-  }));
+  const fakeQuotes = BASKET.map((t) => {
+    const isMixed =
+      t.hops?.some((h) => h.version === 'v4') && t.hops?.some((h) => h.version === 'v3');
+    return {
+      symbol: t.symbol,
+      address: t.address,
+      amountOut: 100_000_000_000_000_000_000n, // 100 tokens (18 dec) — arbitrary
+      decimals: t.decimals,
+      // For ROBOT (V3->V4 mixed), provide a hopOutputs[0] = intermediate WETH
+      // amount (~0.0003 WETH for ~$1 trade).
+      ...(isMixed
+        ? { hopOutputs: [300_000_000_000_000n, 100_000_000_000_000_000_000n] }
+        : {}),
+    };
+  });
 
   test('produces a single UR.execute tx targeting UniversalRouter', () => {
     const { unsignedTx, perLegUsdc } = encodeBasketBuy({
@@ -94,17 +103,17 @@ describe('encodeBasketBuy', () => {
     const [commands, inputs, deadline] = decoded.args as [`0x${string}`, `0x${string}`[], bigint];
     expect(deadline).toBe(DEADLINE);
 
-    // 7 V3-only legs (1 each for VIRTUAL/BNKR/JUNO/ZFI/GIZA = 5) + ROBOT (V3+V4 = 2) + SWEEP = 8
+    // 5 V3-only legs (VIRTUAL/BNKR/JUNO/ZFI/GIZA) + ROBOT (V3+V4 = 2) +
+    // SWEEP USDC + SWEEP WETH (residual from ROBOT V3 over-delivery) = 9.
     const cmdHex = commands.slice(2);
-    expect(cmdHex.length).toBe(8 * 2);
-    // Decode bytes as command codes
+    expect(cmdHex.length).toBe(9 * 2);
     const codes = [];
     for (let i = 0; i < cmdHex.length; i += 2) {
       codes.push(parseInt(cmdHex.slice(i, i + 2), 16));
     }
-    // [V3, V3, V4, V3, V3, V3, V3, SWEEP]
-    expect(codes).toEqual([0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x04]);
-    expect(inputs.length).toBe(8);
+    // [V3, V3 (ROBOT v3 leg), V4 (ROBOT v4 leg), V3, V3, V3, V3, SWEEP USDC, SWEEP WETH]
+    expect(codes).toEqual([0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x04, 0x04]);
+    expect(inputs.length).toBe(9);
   });
 
   test('per-leg USDC division allocates dust to first leg', () => {
