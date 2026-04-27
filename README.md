@@ -8,6 +8,8 @@ Autonomous stablecoin yield for AI agents and machines. Deposit USDC into the [R
 
 **robotmoney-cli** — A conversational skill that lets Claude (or any skill/plugin-compatible agent) query the Robot Money vault and prepare unsigned transactions. Check APY, read positions, deposit, redeem. Optional bring-your-own-wallet via [Open Wallet Standard](https://openwallet.sh/) (OWS) for agents that don't have one yet.
 
+Every deposit auto-splits **95% to the vault + 5% across a fixed 6-token agent basket** (VIRTUAL, ROBOT, BNKR, JUNO, ZFI, GIZA) atomically via Uniswap UniversalRouter on Base. Basket tokens land directly in the receiver's wallet — no share token, no claim. See [`references/basket.md`](plugins/robotmoney-cli/skills/robotmoney-cli/references/basket.md) for the full token list, defaults, flags, and response shapes.
+
 ## Quickstart
 
 ### Claude Code
@@ -36,14 +38,15 @@ Works with Cursor, Codex, any MCP-compatible agent that can invoke a shell, or d
 | `get-vault` | Get full vault state: caps, fees, share price, totals; `--verbose` for per-adapter breakdown |
 | `get-balance` | Get a user's rmUSDC balance and USDC-equivalent value |
 | `get-apy` | Get blended APY across Morpho, Aave, and Compound |
+| `get-basket-holdings` | Get all 6 basket-token balances for a user + per-token USDC valuation |
 | **PREPARE** (unsigned calldata — caller signs externally) | |
-| `prepare-deposit` | Prepare an unsigned deposit with auto-included USDC approval |
-| `prepare-redeem` | Prepare an unsigned synchronous redeem (one-tx withdrawal, `--shares max` supported) |
-| `prepare-withdraw` | Prepare an unsigned withdrawal by target net USDC amount |
+| `prepare-deposit` | Prepare an unsigned deposit (95% vault + 5% basket). Flags: `--no-basket`, `--basket-only`, `--slippage-bps` |
+| `prepare-redeem` | Prepare an unsigned redeem + optional basket sells. Flags: `--sell-all`, `--sell-percent`, `--sell-tokens`, `--sell-amounts`. `--shares 0` skips vault leg |
+| `prepare-withdraw` | Prepare an unsigned withdrawal by target net USDC + optional basket sells (same flags as redeem). `--amount 0` skips vault leg |
 | **EXECUTE** (sign + broadcast end-to-end via OWS) | |
-| `execute-deposit` | Sign and broadcast a deposit via an OWS wallet — returns confirmed tx hashes |
-| `execute-redeem` | Sign and broadcast a redeem via an OWS wallet |
-| `execute-withdraw` | Sign and broadcast a withdrawal via an OWS wallet |
+| `execute-deposit` | Sign and broadcast a deposit (vault + basket) via an OWS wallet — returns confirmed tx hashes |
+| `execute-redeem` | Sign and broadcast a redeem + optional basket sells via an OWS wallet |
+| `execute-withdraw` | Sign and broadcast a withdrawal + optional basket sells via an OWS wallet |
 
 See [`plugins/robotmoney-cli/skills/robotmoney-cli/SKILL.md`](plugins/robotmoney-cli/skills/robotmoney-cli/SKILL.md) for the skill definition and `references/` for response schemas.
 
@@ -99,23 +102,24 @@ npx @robotmoney/cli prepare-redeem \
 
 ## Architecture
 
-The CLI is a thin client around a single ERC-4626 vault on Base:
+The CLI is a thin client around a single ERC-4626 vault on Base, plus an optional 5% leg through Uniswap UniversalRouter for the agent-token basket:
 
 ```
 Agent / machine
-  │  npx @robotmoney/cli prepare-deposit
+  │  npx @robotmoney/cli prepare-deposit --amount 100
   ▼
-CLI prepares unsigned tx + runs eth_call simulation
-  │  returns JSON with calldata + preview
+CLI prepares an unsigned tx sequence:
+  ├─ 95% vault leg
+  │    USDC.approve(vault) + vault.deposit  →  Morpho / Aave / Compound
+  └─ 5% basket leg (atomic)
+       USDC.approve(Permit2) + Permit2.approve(UR) + UR.execute()
+       UniversalRouter routes through V3 + V4 (incl. ROBOT's Doppler hook)
+       Basket tokens land directly in receiver wallet
+  │  returns JSON with calldata + simulation + per-token quotes
   ▼
 Caller signs with their own wallet (externally)
   ▼
-Transaction broadcasts to Base
-  ▼
-Vault splits USDC atomically across:
-  • Morpho Gauntlet USDC Prime
-  • Aave V3 USDC
-  • Compound V3 cUSDCv3
+Transactions broadcast to Base — vault leg + basket leg commit independently
 ```
 
 The CLI never holds keys. Your wallet signs externally — the CLI only emits unsigned calldata.
@@ -177,6 +181,21 @@ All contracts verified on BaseScan.
 - **Share price** grows over time as yield accrues in the underlying protocols — no rebasing, no rebalancing delays
 - **No cooldown, no lock** — deposit and withdraw are synchronous, one transaction each
 - **Caps at soft launch:** 500 USDC TVL, 100 USDC per-deposit — these increase with audit + multisig handover
+
+## Basket leg
+
+Every deposit additionally allocates 5% (default, configurable via `--no-basket` / `--basket-only`) across a fixed 6-token agent basket:
+
+| Symbol | Address | Path | Notes |
+|---|---|---|---|
+| VIRTUAL | `0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b` | V3 USDC, fee=3000 | Virtuals Protocol |
+| ROBOT | `0x65021a79AeEF22b17cdc1B768f5e79a8618bEbA3` | USDC→WETH (V3 fee=500) → ROBOT (V4 dynamic-fee hook) | Bankr/Doppler launch |
+| BNKR | `0x22aF33FE49fD1Fa80c7149773dDe5890D3c76F3b` | USDC→WETH (V3 500) → BNKR (V3 10000) | BankrCoin |
+| JUNO | `0x4E6c9f48f73E54EE5F3AB7e2992B2d733D0d0b07` | V3 USDC, fee=10000 | Juno Agent |
+| ZFI | `0xD080eD3c74a20250a2c9821885203034ACD2D5ae` | USDC→WETH (V3 500) → ZFI (V3 10000) | ZyFAI |
+| GIZA | `0x590830dFDf9A3F68aFCDdE2694773dEBDF267774` | USDC→WETH (V3 500) → GIZA (V3 10000) | Giza |
+
+Routes are routed via Uniswap UniversalRouter on Base, atomic in one `execute()` call. Default basket slippage is 3% (`--slippage-bps 300`); each leg's quote and minOut are returned in the prepare-* output. See [`references/basket.md`](plugins/robotmoney-cli/skills/robotmoney-cli/references/basket.md) for the full spec including sell flags and Permit2 approval flow.
 
 See [robotmoney.net](https://robotmoney.net) for full protocol details.
 

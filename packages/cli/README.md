@@ -4,6 +4,8 @@
 
 CLI for the [Robot Money](https://robotmoney.net) stablecoin yield vault on Base. Built for AI agents and autonomous machines — every command emits JSON to stdout.
 
+Every deposit auto-splits **95% to the vault + 5% across a fixed 6-token agent basket** (VIRTUAL, ROBOT, BNKR, JUNO, ZFI, GIZA) atomically via Uniswap UniversalRouter — basket tokens land directly in the receiver's wallet. Use `--no-basket` for vault-only mode.
+
 ## Install
 
 ```bash
@@ -47,12 +49,13 @@ npx @robotmoney/cli prepare-deposit \
 | `get-vault` | Full vault state (caps, fees, share price); `--verbose` adds per-adapter breakdown |
 | `get-balance` | A user's rmUSDC balance and USDC-equivalent value |
 | `get-apy` | Blended APY across Morpho, Aave, and Compound |
-| `prepare-deposit` | Unsigned deposit tx with auto-included USDC approval |
-| `prepare-redeem` | Unsigned one-tx redeem; accepts `--shares max` |
-| `prepare-withdraw` | Unsigned withdrawal by target net USDC amount |
-| `execute-deposit` | Sign + broadcast a deposit end-to-end via an OWS wallet |
-| `execute-redeem` | Sign + broadcast a redeem end-to-end via an OWS wallet |
-| `execute-withdraw` | Sign + broadcast a withdrawal end-to-end via an OWS wallet |
+| `get-basket-holdings` | All 6 basket-token balances + per-token USDC valuation |
+| `prepare-deposit` | Unsigned deposit txs (95% vault + 5% basket); `--no-basket` for vault-only, `--basket-only` to skip vault, `--slippage-bps` for basket slippage |
+| `prepare-redeem` | Unsigned redeem; supports basket sells via `--sell-all`, `--sell-percent`, `--sell-tokens`, `--sell-amounts`. `--shares 0` to skip vault leg |
+| `prepare-withdraw` | Unsigned withdrawal by target net USDC; same basket-sell flags as `prepare-redeem`. `--amount 0` to skip vault leg |
+| `execute-deposit` | Sign + broadcast a deposit (vault + basket) end-to-end via an OWS wallet |
+| `execute-redeem` | Sign + broadcast a redeem + optional basket sells end-to-end |
+| `execute-withdraw` | Sign + broadcast a withdraw + optional basket sells end-to-end |
 
 ## RPC configuration
 
@@ -80,6 +83,7 @@ RPC_URL=https://base-mainnet.g.alchemy.com/v2/<key> npx @robotmoney/cli get-vaul
 - Skill definition + LLM-facing docs: [`SKILL.md`](https://github.com/robotmoney/robotmoney-skills/blob/main/plugins/robotmoney-cli/skills/robotmoney-cli/SKILL.md)
 - Read schemas: [`references/read.md`](https://github.com/robotmoney/robotmoney-skills/blob/main/plugins/robotmoney-cli/skills/robotmoney-cli/references/read.md)
 - Write schemas: [`references/write.md`](https://github.com/robotmoney/robotmoney-skills/blob/main/plugins/robotmoney-cli/skills/robotmoney-cli/references/write.md)
+- Basket leg (token list, flags, response shapes): [`references/basket.md`](https://github.com/robotmoney/robotmoney-skills/blob/main/plugins/robotmoney-cli/skills/robotmoney-cli/references/basket.md)
 - Repo: https://github.com/robotmoney/robotmoney-skills
 
 ## License

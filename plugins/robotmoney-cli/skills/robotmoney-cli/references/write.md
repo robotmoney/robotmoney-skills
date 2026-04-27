@@ -5,6 +5,8 @@ Two families of write commands:
 - **`prepare-*`** returns unsigned calldata. The caller signs and broadcasts externally.
 - **`execute-*`** signs and broadcasts end-to-end via OWS. Returns confirmed transaction hashes.
 
+> **Heads up: basket leg.** Since v0.2.0, every `prepare-deposit` / `execute-deposit` also buys a 6-token basket (5% of the deposit by default), and `prepare-redeem` / `prepare-withdraw` (and their execute siblings) accept basket-sell flags. Responses include an extra `basket` object with per-leg quotes. New flags below — full spec in [`references/basket.md`](basket.md).
+
 Every `prepare-*` command returns the same top-level shape:
 
 ```json
@@ -38,11 +40,19 @@ Every `prepare-*` command returns the same top-level shape:
 
 ```bash
 npx @robotmoney/cli prepare-deposit --chain base \
-  --user-address 0xYou --amount 100 --receiver 0xYou
+  --user-address 0xYou --amount 100 --receiver 0xYou \
+  [--no-basket | --basket-only] \
+  [--slippage-bps 300]
 ```
 
-Automatically includes a USDC approval tx if the current allowance is less than
-`amount`. Pass `--skip-approve` to omit it.
+Default behavior splits 95% to the vault + 5% across the 6-token basket. Pass
+`--no-basket` for the legacy vault-only flow, `--basket-only` to skip the vault
+leg, or `--slippage-bps N` (default 300 = 3%) to tighten/loosen basket slippage.
+
+Automatically includes USDC approval txs if the current allowances are less
+than what the legs need (vault leg uses direct USDC.approve(vault); basket leg
+uses USDC.approve(Permit2) + Permit2.approve(USDC→UniversalRouter), both with
+1-year expiration). Skipped when allowances already cover the amounts.
 
 ```json
 {
@@ -76,7 +86,31 @@ Automatically includes a USDC approval tx if the current allowance is less than
 
 If the deposit would exceed `tvlCap` or `perDepositCap`, a warning is added to
 `operation.warnings` and the simulation will also show the corresponding revert
-(`TVLCapExceeded` or `PerDepositCapExceeded`).
+(`TVLCapExceeded` or `PerDepositCapExceeded`). The cap checks apply to the
+**vault leg only** (95% of `--amount` by default), not the basket portion.
+
+When the basket leg is included, the response also has a `basket` field:
+
+```json
+{
+  "operation": { /* ... */ },
+  "simulation": { /* ... */ },
+  "basket": {
+    "totalUsdc": "5",
+    "perLegUsdc": "0.833333",
+    "slippageBps": 300,
+    "validUntil": 1777323066,
+    "quotes": [
+      { "symbol": "VIRTUAL", "address": "0x0b3e...", "amountOut": "1206466336985350458", "minAmountOut": "1170272346875789944", "decimals": 18 },
+      /* ... 5 more quotes ... */
+    ]
+  }
+}
+```
+
+The transactions array contains, in order: USDC→vault approval (if needed),
+`vault.deposit`, USDC→Permit2 approval (if needed), Permit2→UR approval (if
+needed), and the single `UR.execute()` for the atomic 6-leg basket buy.
 
 ---
 
@@ -84,11 +118,26 @@ If the deposit would exceed `tvlCap` or `perDepositCap`, a warning is added to
 
 ```bash
 npx @robotmoney/cli prepare-redeem --chain base \
-  --user-address 0xYou --shares max --receiver 0xYou
+  --user-address 0xYou --shares max --receiver 0xYou \
+  [--sell-all | --sell-percent N | --sell-tokens VIRTUAL,JUNO [--sell-amounts 1.5,200]] \
+  [--slippage-bps 300]
 ```
 
-`--shares` accepts a decimal number or the literal string `max` (reads
-`balanceOf(user)`).
+`--shares` accepts a decimal number, the literal string `max` (reads
+`balanceOf(user)`), or `0` to **skip the vault leg** entirely (basket-sell only).
+
+The basket-sell flags are documented in full in [`basket.md`](basket.md).
+TL;DR:
+- `--sell-all` sells 100% of every basket-token holding
+- `--sell-percent N` sells N% of every holding (1-100)
+- `--sell-tokens X,Y` scopes to specific symbols (defaults to selling full balance of each)
+- `--sell-amounts A,B` pairs 1:1 with `--sell-tokens` for explicit decimals
+- Tokens with zero balance are silently skipped
+
+When sell flags are passed, the response gains a `basket` field with per-leg
+USDC quotes and `minUsdcOut`. The transactions array adds per-token Permit2
+approvals (skipped if already valid) and a final `UR.execute()` containing all
+the basket-sell legs in one atomic call.
 
 ```json
 {
@@ -121,11 +170,14 @@ npx @robotmoney/cli prepare-redeem --chain base \
 
 ```bash
 npx @robotmoney/cli prepare-withdraw --chain base \
-  --user-address 0xYou --amount 50 --receiver 0xYou
+  --user-address 0xYou --amount 50 --receiver 0xYou \
+  [...same basket-sell flags as prepare-redeem...]
 ```
 
 `--amount` is the **net** USDC the caller wants to receive. The CLI computes
-the shares required to produce that net amount after the exit fee.
+the shares required to produce that net amount after the exit fee. Pass
+`--amount 0` to skip the vault leg (basket-sell only). The basket-sell flags
+behave identically to `prepare-redeem` — see [`basket.md`](basket.md).
 
 ```json
 {
