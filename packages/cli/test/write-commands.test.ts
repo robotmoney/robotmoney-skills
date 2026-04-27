@@ -67,7 +67,7 @@ describe('prepare-deposit', () => {
 
     await prepareDeposit(
       { chain: 'base' },
-      { userAddress: user, amount: '10', receiver: user },
+      { userAddress: user, amount: '10', receiver: user, noBasket: true },
     );
 
     const json = parseLastJson(stdoutCap.chunks) as {
@@ -111,7 +111,7 @@ describe('prepare-deposit', () => {
 
     await prepareDeposit(
       { chain: 'base' },
-      { userAddress: user, amount: '10', receiver: user },
+      { userAddress: user, amount: '10', receiver: user, noBasket: true },
     );
 
     const json = parseLastJson(stdoutCap.chunks) as {
@@ -144,7 +144,7 @@ describe('prepare-deposit', () => {
 
     await prepareDeposit(
       { chain: 'base' },
-      { userAddress: user, amount: '150', receiver: user },
+      { userAddress: user, amount: '150', receiver: user, noBasket: true },
     );
 
     const json = parseLastJson(stdoutCap.chunks) as { operation: { warnings: string[] } };

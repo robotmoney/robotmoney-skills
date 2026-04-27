@@ -12,6 +12,7 @@ import { executeDeposit } from './commands/execute-deposit.js';
 import { executeRedeem } from './commands/execute-redeem.js';
 import { executeWithdraw } from './commands/execute-withdraw.js';
 import { createWallet } from './commands/create-wallet.js';
+import { getBasketHoldings } from './commands/get-basket-holdings.js';
 
 interface RawGlobalOpts {
   chain?: string;
@@ -73,12 +74,31 @@ export function buildProgram(): Command {
     .description('Get blended APY across Morpho, Aave, and Compound')
     .action(async (opts: RawGlobalOpts) => runOrDie(() => getApy(parseGlobal(opts))));
 
+  attachGlobalFlags(program.command('get-basket-holdings'))
+    .description('Get the user\'s balances of the 6 basket tokens with USDC valuation')
+    .requiredOption('--user-address <address>', 'EVM address of the holder')
+    .option('--no-pricing', 'skip USD valuation (faster, no quoter calls)')
+    .action(
+      async (opts: RawGlobalOpts & { userAddress: string; pricing?: boolean }) =>
+        runOrDie(() =>
+          getBasketHoldings(parseGlobal(opts), {
+            userAddress: addressSchema.parse(opts.userAddress),
+            noPricing: opts.pricing === false,
+          }),
+        ),
+    );
+
   attachGlobalFlags(program.command('prepare-deposit'))
-    .description('Prepare an unsigned deposit transaction (with auto-included USDC approval)')
+    .description(
+      'Prepare unsigned deposit txs: 95% to vault + 5% across a 6-token agent basket (USDC approval included)',
+    )
     .requiredOption('--user-address <address>', 'EVM address of the depositor')
     .requiredOption('--amount <usdc>', 'USDC amount to deposit (decimal)')
-    .requiredOption('--receiver <address>', 'EVM address receiving rmUSDC shares')
-    .option('--skip-approve', 'omit the approval transaction from the output')
+    .requiredOption('--receiver <address>', 'EVM address receiving rmUSDC shares + basket tokens')
+    .option('--skip-approve', 'omit the vault approval transaction from the output')
+    .option('--no-basket', 'vault-only mode: skip the 5% basket leg')
+    .option('--basket-only', 'basket-only mode: skip the vault leg, swap full amount to basket')
+    .option('--slippage-bps <bps>', 'slippage tolerance for basket swaps in bps (default 300 = 3%)')
     .action(
       async (
         opts: RawGlobalOpts & {
@@ -86,6 +106,9 @@ export function buildProgram(): Command {
           amount: string;
           receiver: string;
           skipApprove?: boolean;
+          basket?: boolean; // commander negation: --no-basket flips this to false
+          basketOnly?: boolean;
+          slippageBps?: string;
         },
       ) =>
         runOrDie(() =>
@@ -94,53 +117,119 @@ export function buildProgram(): Command {
             amount: amountSchema.parse(opts.amount),
             receiver: addressSchema.parse(opts.receiver),
             skipApprove: opts.skipApprove ?? false,
+            noBasket: opts.basket === false,
+            basketOnly: opts.basketOnly ?? false,
+            ...(opts.slippageBps !== undefined
+              ? { slippageBps: Number.parseInt(opts.slippageBps, 10) }
+              : {}),
           }),
         ),
     );
 
   attachGlobalFlags(program.command('prepare-redeem'))
-    .description('Prepare an unsigned redeem transaction (one-tx synchronous withdrawal)')
+    .description(
+      'Prepare unsigned redeem txs: vault redeem + optional basket sells (--sell-all/--sell-percent/--sell-tokens)',
+    )
     .requiredOption('--user-address <address>', 'EVM address of the owner')
-    .requiredOption('--shares <amount>', 'shares to redeem, or "max"')
-    .requiredOption('--receiver <address>', 'EVM address receiving USDC')
+    .requiredOption('--shares <amount>', 'rmUSDC shares to redeem; "max", a decimal, or "0" to skip vault leg')
+    .requiredOption('--receiver <address>', 'EVM address receiving USDC + any sold basket tokens')
+    .option('--sell-all', 'sell 100% of every basket token the user holds')
+    .option('--sell-percent <bps>', 'sell N% of every basket token the user holds (1-100)')
+    .option('--sell-tokens <symbols>', 'comma-separated symbols to sell (VIRTUAL,JUNO,...)')
+    .option('--sell-amounts <decimals>', 'comma-separated decimal amounts paired with --sell-tokens')
+    .option('--slippage-bps <bps>', 'slippage tolerance for basket sells in bps (default 300 = 3%)')
     .action(
       async (
-        opts: RawGlobalOpts & { userAddress: string; shares: string; receiver: string },
+        opts: RawGlobalOpts & {
+          userAddress: string;
+          shares: string;
+          receiver: string;
+          sellAll?: boolean;
+          sellPercent?: string;
+          sellTokens?: string;
+          sellAmounts?: string;
+          slippageBps?: string;
+        },
       ) =>
         runOrDie(() =>
           prepareRedeem(parseGlobal(opts), {
             userAddress: addressSchema.parse(opts.userAddress),
             shares: sharesSchema.parse(opts.shares),
             receiver: addressSchema.parse(opts.receiver),
+            ...(opts.sellAll !== undefined ? { sellAll: opts.sellAll } : {}),
+            ...(opts.sellPercent !== undefined
+              ? { sellPercent: Number.parseInt(opts.sellPercent, 10) }
+              : {}),
+            ...(opts.sellTokens !== undefined
+              ? { sellTokens: opts.sellTokens.split(',').map((s) => s.trim()) }
+              : {}),
+            ...(opts.sellAmounts !== undefined
+              ? { sellAmounts: opts.sellAmounts.split(',').map((s) => s.trim()) }
+              : {}),
+            ...(opts.slippageBps !== undefined
+              ? { slippageBps: Number.parseInt(opts.slippageBps, 10) }
+              : {}),
           }),
         ),
     );
 
   attachGlobalFlags(program.command('prepare-withdraw'))
-    .description('Prepare an unsigned withdrawal by target net USDC amount')
+    .description(
+      'Prepare unsigned withdraw txs: vault withdraw by exact USDC amount + optional basket sells',
+    )
     .requiredOption('--user-address <address>', 'EVM address of the owner')
-    .requiredOption('--amount <usdc>', 'net USDC amount to receive (decimal)')
+    .requiredOption('--amount <usdc>', 'net USDC amount to receive (decimal); "0" skips vault leg')
     .requiredOption('--receiver <address>', 'EVM address receiving USDC')
+    .option('--sell-all', 'sell 100% of every basket token the user holds')
+    .option('--sell-percent <bps>', 'sell N% of every basket token the user holds (1-100)')
+    .option('--sell-tokens <symbols>', 'comma-separated symbols to sell (VIRTUAL,JUNO,...)')
+    .option('--sell-amounts <decimals>', 'comma-separated decimal amounts paired with --sell-tokens')
+    .option('--slippage-bps <bps>', 'slippage tolerance for basket sells in bps (default 300 = 3%)')
     .action(
       async (
-        opts: RawGlobalOpts & { userAddress: string; amount: string; receiver: string },
+        opts: RawGlobalOpts & {
+          userAddress: string;
+          amount: string;
+          receiver: string;
+          sellAll?: boolean;
+          sellPercent?: string;
+          sellTokens?: string;
+          sellAmounts?: string;
+          slippageBps?: string;
+        },
       ) =>
         runOrDie(() =>
           prepareWithdraw(parseGlobal(opts), {
             userAddress: addressSchema.parse(opts.userAddress),
             amount: amountSchema.parse(opts.amount),
             receiver: addressSchema.parse(opts.receiver),
+            ...(opts.sellAll !== undefined ? { sellAll: opts.sellAll } : {}),
+            ...(opts.sellPercent !== undefined
+              ? { sellPercent: Number.parseInt(opts.sellPercent, 10) }
+              : {}),
+            ...(opts.sellTokens !== undefined
+              ? { sellTokens: opts.sellTokens.split(',').map((s) => s.trim()) }
+              : {}),
+            ...(opts.sellAmounts !== undefined
+              ? { sellAmounts: opts.sellAmounts.split(',').map((s) => s.trim()) }
+              : {}),
+            ...(opts.slippageBps !== undefined
+              ? { slippageBps: Number.parseInt(opts.slippageBps, 10) }
+              : {}),
           }),
         ),
     );
 
   attachGlobalFlags(program.command('execute-deposit'))
-    .description('Sign and broadcast a deposit end-to-end via an OWS wallet')
+    .description('Sign and broadcast a deposit (95% vault + 5% basket) end-to-end via an OWS wallet')
     .requiredOption('--amount <usdc>', 'USDC amount to deposit (decimal)')
     .option('--wallet <name>', 'OWS wallet name (optional if only one wallet exists locally)')
     .option('--passphrase <string>', 'OWS passphrase (or set OWS_PASSPHRASE env)')
     .option('--storage-path <dir>', 'override the OWS vault directory')
-    .option('--receiver <address>', 'EVM address to receive rmUSDC (defaults to the wallet address)')
+    .option('--receiver <address>', 'EVM address to receive rmUSDC + basket tokens (defaults to wallet address)')
+    .option('--no-basket', 'vault-only mode: skip the 5% basket leg')
+    .option('--basket-only', 'basket-only mode: skip the vault leg')
+    .option('--slippage-bps <bps>', 'basket slippage tolerance in bps (default 300 = 3%)')
     .action(
       async (
         opts: RawGlobalOpts & {
@@ -149,6 +238,9 @@ export function buildProgram(): Command {
           passphrase?: string;
           storagePath?: string;
           receiver?: string;
+          basket?: boolean;
+          basketOnly?: boolean;
+          slippageBps?: string;
         },
       ) =>
         runOrDie(() =>
@@ -158,17 +250,27 @@ export function buildProgram(): Command {
             ...(opts.passphrase !== undefined ? { passphrase: opts.passphrase } : {}),
             ...(opts.storagePath !== undefined ? { storagePath: opts.storagePath } : {}),
             ...(opts.receiver !== undefined ? { receiver: addressSchema.parse(opts.receiver) } : {}),
+            noBasket: opts.basket === false,
+            basketOnly: opts.basketOnly ?? false,
+            ...(opts.slippageBps !== undefined
+              ? { slippageBps: Number.parseInt(opts.slippageBps, 10) }
+              : {}),
           }),
         ),
     );
 
   attachGlobalFlags(program.command('execute-redeem'))
-    .description('Sign and broadcast a redeem end-to-end via an OWS wallet')
-    .requiredOption('--shares <amount>', 'shares to redeem, or "max"')
+    .description('Sign and broadcast a redeem (vault + optional basket sells) end-to-end via OWS')
+    .requiredOption('--shares <amount>', 'rmUSDC shares to redeem; "max", a decimal, or "0" to skip vault leg')
     .option('--wallet <name>', 'OWS wallet name (optional if only one wallet exists locally)')
     .option('--passphrase <string>', 'OWS passphrase (or set OWS_PASSPHRASE env)')
     .option('--storage-path <dir>', 'override the OWS vault directory')
     .option('--receiver <address>', 'EVM address to receive USDC (defaults to the wallet address)')
+    .option('--sell-all', 'sell 100% of every basket token the wallet holds')
+    .option('--sell-percent <bps>', 'sell N% of every basket token the wallet holds (1-100)')
+    .option('--sell-tokens <symbols>', 'comma-separated symbols to sell (VIRTUAL,JUNO,...)')
+    .option('--sell-amounts <decimals>', 'comma-separated decimal amounts paired with --sell-tokens')
+    .option('--slippage-bps <bps>', 'basket slippage tolerance in bps (default 300 = 3%)')
     .action(
       async (
         opts: RawGlobalOpts & {
@@ -177,6 +279,11 @@ export function buildProgram(): Command {
           passphrase?: string;
           storagePath?: string;
           receiver?: string;
+          sellAll?: boolean;
+          sellPercent?: string;
+          sellTokens?: string;
+          sellAmounts?: string;
+          slippageBps?: string;
         },
       ) =>
         runOrDie(() =>
@@ -186,17 +293,35 @@ export function buildProgram(): Command {
             ...(opts.passphrase !== undefined ? { passphrase: opts.passphrase } : {}),
             ...(opts.storagePath !== undefined ? { storagePath: opts.storagePath } : {}),
             ...(opts.receiver !== undefined ? { receiver: addressSchema.parse(opts.receiver) } : {}),
+            ...(opts.sellAll !== undefined ? { sellAll: opts.sellAll } : {}),
+            ...(opts.sellPercent !== undefined
+              ? { sellPercent: Number.parseInt(opts.sellPercent, 10) }
+              : {}),
+            ...(opts.sellTokens !== undefined
+              ? { sellTokens: opts.sellTokens.split(',').map((s) => s.trim()) }
+              : {}),
+            ...(opts.sellAmounts !== undefined
+              ? { sellAmounts: opts.sellAmounts.split(',').map((s) => s.trim()) }
+              : {}),
+            ...(opts.slippageBps !== undefined
+              ? { slippageBps: Number.parseInt(opts.slippageBps, 10) }
+              : {}),
           }),
         ),
     );
 
   attachGlobalFlags(program.command('execute-withdraw'))
-    .description('Sign and broadcast a withdrawal end-to-end via an OWS wallet')
-    .requiredOption('--amount <usdc>', 'net USDC amount to receive (decimal)')
+    .description('Sign and broadcast a withdraw (vault + optional basket sells) end-to-end via OWS')
+    .requiredOption('--amount <usdc>', 'net USDC amount to receive (decimal); "0" skips vault leg')
     .option('--wallet <name>', 'OWS wallet name (optional if only one wallet exists locally)')
     .option('--passphrase <string>', 'OWS passphrase (or set OWS_PASSPHRASE env)')
     .option('--storage-path <dir>', 'override the OWS vault directory')
     .option('--receiver <address>', 'EVM address to receive USDC (defaults to the wallet address)')
+    .option('--sell-all', 'sell 100% of every basket token the wallet holds')
+    .option('--sell-percent <bps>', 'sell N% of every basket token the wallet holds (1-100)')
+    .option('--sell-tokens <symbols>', 'comma-separated symbols to sell (VIRTUAL,JUNO,...)')
+    .option('--sell-amounts <decimals>', 'comma-separated decimal amounts paired with --sell-tokens')
+    .option('--slippage-bps <bps>', 'basket slippage tolerance in bps (default 300 = 3%)')
     .action(
       async (
         opts: RawGlobalOpts & {
@@ -205,6 +330,11 @@ export function buildProgram(): Command {
           passphrase?: string;
           storagePath?: string;
           receiver?: string;
+          sellAll?: boolean;
+          sellPercent?: string;
+          sellTokens?: string;
+          sellAmounts?: string;
+          slippageBps?: string;
         },
       ) =>
         runOrDie(() =>
@@ -214,6 +344,19 @@ export function buildProgram(): Command {
             ...(opts.passphrase !== undefined ? { passphrase: opts.passphrase } : {}),
             ...(opts.storagePath !== undefined ? { storagePath: opts.storagePath } : {}),
             ...(opts.receiver !== undefined ? { receiver: addressSchema.parse(opts.receiver) } : {}),
+            ...(opts.sellAll !== undefined ? { sellAll: opts.sellAll } : {}),
+            ...(opts.sellPercent !== undefined
+              ? { sellPercent: Number.parseInt(opts.sellPercent, 10) }
+              : {}),
+            ...(opts.sellTokens !== undefined
+              ? { sellTokens: opts.sellTokens.split(',').map((s) => s.trim()) }
+              : {}),
+            ...(opts.sellAmounts !== undefined
+              ? { sellAmounts: opts.sellAmounts.split(',').map((s) => s.trim()) }
+              : {}),
+            ...(opts.slippageBps !== undefined
+              ? { slippageBps: Number.parseInt(opts.slippageBps, 10) }
+              : {}),
           }),
         ),
     );

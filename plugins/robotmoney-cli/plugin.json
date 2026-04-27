@@ -1,6 +1,6 @@
 {
   "name": "robotmoney-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Interact with the Robot Money stablecoin yield vault on Base",
   "author": "Robot Money",
   "homepage": "https://robotmoney.net",

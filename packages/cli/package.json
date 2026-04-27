@@ -1,6 +1,6 @@
 {
   "name": "@robotmoney/cli",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "CLI for the Robot Money stablecoin yield vault on Base — for AI agents and autonomous machines",
   "keywords": [
     "robotmoney",
@@ -43,6 +43,10 @@
   },
   "dependencies": {
     "@open-wallet-standard/core": "1.2.4",
+    "@uniswap/sdk-core": "^7.13.0",
+    "@uniswap/universal-router-sdk": "^5.1.0",
+    "@uniswap/v3-sdk": "^3.30.0",
+    "@uniswap/v4-sdk": "^2.0.0",
     "commander": "^12.0.0",
     "viem": "^2.21.0",
     "zod": "^3.22.0"

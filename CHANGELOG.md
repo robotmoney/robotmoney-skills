@@ -6,6 +6,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-04-27
+
+### Added
+- **Agent basket leg** on every deposit, redeem, and withdraw. `prepare-deposit` / `execute-deposit` now split the input 95% to the vault + 5% across a fixed 6-token basket (VIRTUAL, ROBOT, BNKR, JUNO, ZFI, GIZA), atomically via Uniswap UniversalRouter on Base. Tokens land directly in the receiver's wallet — no share token. Pool routing was discovered on-chain (V3 for 5 tokens; V3→V4 multi-hop for ROBOT via its Doppler-deployed dynamic-fee hook). See `references/basket.md`.
+- **`get-basket-holdings`** command — read every basket-token balance for a user plus per-token USDC valuation via on-chain quotes. Pass `--no-pricing` to skip the quoter calls.
+- **New deposit flags**: `--no-basket` (vault-only), `--basket-only` (skip vault leg), `--slippage-bps` (default 300 = 3%, applied uniformly across V3 and Clanker dynamic-fee V4 pools).
+- **New redeem/withdraw flags**: `--sell-all`, `--sell-percent N` (1-100), `--sell-tokens VIRTUAL,JUNO`, `--sell-amounts 1.5,200` (parallel to `--sell-tokens`). Pass `--shares 0` (or `--amount 0` on withdraw) to skip the vault leg and only sell basket tokens.
+- **Permit2 approval flow** auto-emitted when missing or expired (max amount, 1y expiration). Steady-state cost: 1 tx for a deposit after first use, since approvals carry over.
+- **Quote validity window** of 5 minutes embedded as the UR `execute()` deadline. Response includes `validUntil` for callers to re-quote if signing takes longer.
+
+### Changed
+- **Default behavior**: a deposit at `--amount N` now allocates 95% to the vault and 5% across the basket. Old vault-only behavior is preserved with `--no-basket`. Callers parsing `operation.transactions` should expect more entries (up to 5 in the worst-case fresh-Permit2 case).
+- `prepare-redeem` and `prepare-withdraw` now accept `--shares 0` and `--amount 0` respectively to mean "skip the vault leg" (basket-sell only).
+
 ## [0.1.2] — 2026-04-14
 
 ### Added

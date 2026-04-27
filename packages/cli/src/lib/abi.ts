@@ -124,6 +124,25 @@ export const USDC_ABI = [
   { type: 'function', name: 'approve', stateMutability: 'nonpayable', inputs: [{ name: 'spender', type: 'address' }, { name: 'value', type: 'uint256' }], outputs: [{ type: 'bool' }] },
 ] as const;
 
+// Permit2 — minimal slice for allowance reads.
+export const PERMIT2_ABI = [
+  {
+    type: 'function',
+    name: 'allowance',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'owner', type: 'address' },
+      { name: 'token', type: 'address' },
+      { name: 'spender', type: 'address' },
+    ],
+    outputs: [
+      { name: 'amount', type: 'uint160' },
+      { name: 'expiration', type: 'uint48' },
+      { name: 'nonce', type: 'uint48' },
+    ],
+  },
+] as const;
+
 // Aave V3 Pool — we only need getReserveData to read currentLiquidityRate
 export const AAVE_POOL_ABI = [
   {

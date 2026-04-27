@@ -25,6 +25,8 @@ npx @robotmoney/cli <command> [options]
 
 **Vault:** `0x4f835c9f54bcf17daf9040f60cb72951ccbb49dd` on Base — a multi-adapter ERC-4626 vault that splits USDC across Morpho Gauntlet USDC Prime, Aave V3, and Compound V3 by dynamic equal weight.
 
+**Basket leg (new):** `prepare-deposit` and `execute-deposit` now also buy a fixed 6-token agent basket (VIRTUAL, ROBOT, BNKR, JUNO, ZFI, GIZA) atomically via Uniswap UniversalRouter — 95% to vault, 5% across the basket by default. `prepare-redeem` / `prepare-withdraw` (and their `execute-*` siblings) can sell back any subset. See [references/basket.md](references/basket.md).
+
 **RPC:** defaults to a built-in pool of 5 free Base endpoints with automatic fallback. Users don't need their own RPC URL. Pass `--rpc-url <url>` or set `RPC_URL` if you want to override.
 
 ## Target users
@@ -52,6 +54,7 @@ Use `prepare-*` regardless of whether a wallet exists locally. Return the unsign
 
 - **[Read commands](references/read.md)** — exact JSON shapes for `health-check`, `get-vault`, `get-balance`, `get-apy`
 - **[Write commands](references/write.md)** — exact JSON shapes for `prepare-*`, `execute-*`, `create-wallet`
+- **[Basket leg](references/basket.md)** — token list, defaults, new flags, response shape, `get-basket-holdings`
 
 ## Quick Reference
 
@@ -60,20 +63,24 @@ Use `prepare-*` regardless of whether a wallet exists locally. Return the unsign
 npx @robotmoney/cli create-wallet [--label <string>] [--storage-path <dir>]
 
 # Read — query protocol state (no wallet required)
-npx @robotmoney/cli health-check --chain base
-npx @robotmoney/cli get-vault    --chain base [--verbose]
-npx @robotmoney/cli get-balance  --chain base --user-address 0x...
-npx @robotmoney/cli get-apy      --chain base
+npx @robotmoney/cli health-check         --chain base
+npx @robotmoney/cli get-vault            --chain base [--verbose]
+npx @robotmoney/cli get-balance          --chain base --user-address 0x...
+npx @robotmoney/cli get-apy              --chain base
+npx @robotmoney/cli get-basket-holdings  --chain base --user-address 0x... [--no-pricing]
 
-# Prepare — unsigned calldata for external signing
-npx @robotmoney/cli prepare-deposit  --chain base --user-address 0x... --amount 100 --receiver 0x...
-npx @robotmoney/cli prepare-redeem   --chain base --user-address 0x... --shares max --receiver 0x...
-npx @robotmoney/cli prepare-withdraw --chain base --user-address 0x... --amount 50 --receiver 0x...
+# Prepare — unsigned calldata for external signing (95% vault + 5% basket by default)
+npx @robotmoney/cli prepare-deposit  --chain base --user-address 0x... --amount 100 --receiver 0x... \
+    [--no-basket | --basket-only] [--slippage-bps 300]
+npx @robotmoney/cli prepare-redeem   --chain base --user-address 0x... --shares max --receiver 0x... \
+    [--sell-all | --sell-percent N | --sell-tokens VIRTUAL,JUNO [--sell-amounts 1.5,200]] [--slippage-bps 300]
+npx @robotmoney/cli prepare-withdraw --chain base --user-address 0x... --amount 50 --receiver 0x... \
+    [...same basket-sell flags...]
 
-# Execute — sign + broadcast end-to-end via OWS (wallet name optional if only one exists)
-npx @robotmoney/cli execute-deposit  --chain base --wallet <name> --amount 100
-npx @robotmoney/cli execute-redeem   --chain base --wallet <name> --shares max
-npx @robotmoney/cli execute-withdraw --chain base --wallet <name> --amount 50
+# Execute — sign + broadcast end-to-end via OWS
+npx @robotmoney/cli execute-deposit  --chain base --wallet <name> --amount 100 [--no-basket | --basket-only]
+npx @robotmoney/cli execute-redeem   --chain base --wallet <name> --shares max [--sell-all]
+npx @robotmoney/cli execute-withdraw --chain base --wallet <name> --amount 50 [--sell-all]
 ```
 
 ## Wallet & passphrase resolution (execute-*)
