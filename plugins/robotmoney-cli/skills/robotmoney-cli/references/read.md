@@ -54,13 +54,13 @@ npx @robotmoney/cli get-vault --chain base
   "sharePrice": "1.0",
   "paused": false,
   "shutdown": false,
-  "tvlCap": "500",
-  "tvlCapRaw": "500000000",
+  "tvlCap": "100000",
+  "tvlCapRaw": "100000000000",
   "tvlCapReached": false,
-  "perDepositCap": "100",
-  "perDepositCapRaw": "100000000",
+  "perDepositCap": "5000",
+  "perDepositCapRaw": "5000000000",
   "exitFeeBps": 25,
-  "feeRecipient": "0xf9572bDF7dA594a8A92CC33142f0F053eB6ff03F",
+  "feeRecipient": "0x88bA7364cC6cE5054981d571b33f8fb3E91475A0",
   "activeAdapterCount": 3,
   "currentTargetBps": 3333
 }

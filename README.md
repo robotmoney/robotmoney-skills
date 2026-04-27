@@ -180,7 +180,7 @@ All contracts verified on BaseScan.
 - **Withdrawals** burn rmUSDC and return USDC in a single transaction, minus a 0.25% exit fee
 - **Share price** grows over time as yield accrues in the underlying protocols — no rebasing, no rebalancing delays
 - **No cooldown, no lock** — deposit and withdraw are synchronous, one transaction each
-- **Caps at soft launch:** 500 USDC TVL, 100 USDC per-deposit — these increase with audit + multisig handover
+- **Production caps:** $100,000 TVL, $5,000 per-deposit. Vault is administered by a Safe multisig (`0x88bA7364cC6cE5054981d571b33f8fb3E91475A0`).
 
 ## Basket leg
 

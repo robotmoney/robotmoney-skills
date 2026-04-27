@@ -26,7 +26,7 @@ export async function createWallet(options: CreateWalletOptions = {}): Promise<v
       instructions: [
         '1. Your wallet has been created and encrypted at the storage path above.',
         '2. Fund it on Base with TWO things:',
-        '   a. USDC — the amount you want to deposit (the vault per-deposit cap is 100 USDC at soft launch).',
+        '   a. USDC — the amount you want to deposit (the vault per-deposit cap is 5,000 USDC).',
         '   b. A small amount of ETH for gas (~$0.01\u2013$0.05 covers roughly 10 vault transactions).',
         '   Funding options: Coinbase withdraw on Base, https://bridge.base.org, or any CEX/DEX that supports Base.',
         `3. Execute a deposit end-to-end via OWS with: robotmoney execute-deposit --chain base --wallet ${result.name} --amount <usdc>`,

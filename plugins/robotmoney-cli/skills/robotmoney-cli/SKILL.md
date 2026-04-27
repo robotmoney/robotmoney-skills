@@ -97,7 +97,7 @@ Passphrase:
 ## Funding a newly-created wallet
 
 `create-wallet` returns a new EVM address. Before running `execute-*`, fund it with:
-1. **USDC** on Base — the amount you want to deposit. Per-deposit cap is 100 USDC at soft launch.
+1. **USDC** on Base — the amount you want to deposit. Per-deposit cap is 5,000 USDC.
 2. **A small amount of ETH on Base for gas** — roughly $0.01–0.05 covers ~10 vault transactions. Without ETH, every `execute-*` will fail at gas check.
 
 Funding paths: Coinbase Base withdrawal, https://bridge.base.org, or any CEX/DEX that supports Base.
@@ -123,8 +123,8 @@ Funding paths: Coinbase Base withdrawal, https://bridge.base.org, or any CEX/DEX
 | `ERC4626ExceededMaxDeposit` | Deposit exceeds vault's max for this receiver | Reduce amount; check TVL and per-deposit caps |
 | `ERC4626ExceededMaxWithdraw` | Withdraw amount exceeds the owner's current balance | Use `prepare-redeem --shares max` to exit the full position |
 | `ERC4626ExceededMaxRedeem` | Redeem shares exceed the owner's share balance | Use `--shares max`, which reads balanceOf automatically |
-| `TVLCapExceeded` | Deposit would exceed vault TVL cap (500 USDC at soft launch) | Reduce amount or wait for cap raise |
-| `PerDepositCapExceeded` | Single deposit exceeds per-deposit cap (100 USDC at soft launch) | Split into multiple deposits under the cap |
+| `TVLCapExceeded` | Deposit would push total vault assets above the TVL cap ($100,000) | Reduce amount or wait for cap raise |
+| `PerDepositCapExceeded` | Single deposit exceeds the per-deposit cap ($5,000) | Split into multiple deposits under the cap |
 | `VaultShutdown` | Vault is permanently shut down — deposits disabled | Withdrawals still work; no new deposits accepted |
 | `EnforcedPause` | Vault is paused (operational emergency) | Wait for unpause; withdrawals may still be available |
 | `NoActiveAdapters` | No adapters are active | Operator attention required before any deposit |
