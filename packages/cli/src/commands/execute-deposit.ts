@@ -108,6 +108,7 @@ export async function executeDeposit(
 
   // Basket leg
   let basketDetails: Awaited<ReturnType<typeof buildBasketBuyLeg>>['details'] | null = null;
+  const fallbackGasByIndex: Record<number, bigint> = {};
   if (basketAmount > 0n) {
     const buyLeg = await buildBasketBuyLeg(client, {
       usdc: BASKET_USDC,
@@ -116,6 +117,10 @@ export async function executeDeposit(
       basketAmountRaw: basketAmount,
       ...(options.slippageBps !== undefined ? { slippageBps: options.slippageBps } : {}),
     });
+    const offset = transactions.length;
+    for (const [localIdx, gas] of Object.entries(buyLeg.fallbackGasByIndex)) {
+      fallbackGasByIndex[offset + Number(localIdx)] = gas;
+    }
     transactions.push(...buyLeg.transactions);
     basketDetails = buyLeg.details;
   }
@@ -158,7 +163,7 @@ export async function executeDeposit(
       ...(options.storagePath !== undefined ? { storagePath: options.storagePath } : {}),
     },
     transactions,
-    overridesByIndex,
+    { overridesByIndex, fallbackGasByIndex },
   );
 
   // Post-confirmation: read actual new balance

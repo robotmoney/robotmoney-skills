@@ -6,6 +6,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-04-28
+
+### Fixed
+- **`execute-*` no longer aborts mid-sequence on dependent-tx gas estimates.** The pre-broadcast gas check ran inside the broadcast loop, so any tx that depended on a prior approve in the same sequence (`USDC→Permit2`, `Permit2→UR`, etc.) failed estimation and threw — even though simulation correctly flagged the failure as `expected: true`. Estimation now runs as a single up-front pass; dependent txs (`i > 0`) fall back to a conservative gas ceiling supplied by the basket leg builders (1.5M for buys; 0.4M base + 0.4M per token for sells).
+- **Honest abort message.** When a pre-broadcast estimate fails on `tx[0]` the error now says "No transactions were broadcast — no ETH was spent." When a *broadcast* fails after earlier txs have already been signed, the error lists their hashes instead of falsely claiming nothing landed. Previously the same "Aborting broadcast so no ETH is wasted" message fired in both cases — confusing during partial failures of multi-leg deposits/redeems/withdraws.
+
 ## [0.2.0] — 2026-04-27
 
 ### Added

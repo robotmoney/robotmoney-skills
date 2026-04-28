@@ -30,10 +30,29 @@ import type { UnsignedTx } from '../simulate.js';
 
 const MAX_U160 = (1n << 160n) - 1n;
 
+// Conservative gas ceilings for the trailing UR.execute when its pre-broadcast
+// estimate fails because USDC/token->Permit2 and Permit2->UR allowances haven't
+// landed yet. Used only as a fallback by execute.ts; real estimates take
+// precedence whenever they succeed.
+//
+// Buy: 6 legs of V3 + 1 mixed V3->V4 + sweeps. Observed real cost ~1M-1.1M.
+// Sell: scales with token count. Per-leg covers V3 reverse (~250k) or V4->V3
+// reverse with settle/take (~400k) plus sweep.
+const BUY_UR_EXECUTE_FALLBACK_GAS = 1_500_000n;
+const SELL_UR_EXECUTE_BASE_GAS = 400_000n;
+const SELL_UR_EXECUTE_PER_LEG_GAS = 400_000n;
+
 // ---------- Buy leg ----------
 
 export interface BuyLegResult {
   transactions: UnsignedTx[];
+  /** Maps an index within `transactions` to a fallback gas ceiling. The
+   *  trailing UR.execute depends on Permit2-related approves landing first;
+   *  if those approves are also in this leg, latest-block gas estimation will
+   *  revert. execute.ts uses these ceilings only when its real estimate
+   *  fails. Indices are local to this leg — callers must offset them when
+   *  splicing into a larger sequence. */
+  fallbackGasByIndex: Record<number, bigint>;
   details: {
     totalUsdc: string;
     totalUsdcRaw: string;
@@ -115,6 +134,9 @@ export async function buildBasketBuyLeg(
 
   return {
     transactions,
+    fallbackGasByIndex: {
+      [transactions.length - 1]: BUY_UR_EXECUTE_FALLBACK_GAS,
+    },
     details: {
       totalUsdc: formatUnits(args.basketAmountRaw, 6),
       totalUsdcRaw: args.basketAmountRaw.toString(),
@@ -137,6 +159,9 @@ export async function buildBasketBuyLeg(
 
 export interface SellLegResult {
   transactions: UnsignedTx[];
+  /** See `BuyLegResult.fallbackGasByIndex`. Empty when there are no
+   *  transactions (no eligible balances). */
+  fallbackGasByIndex: Record<number, bigint>;
   details: {
     slippageBps: number;
     validUntil: number;
@@ -185,7 +210,7 @@ export async function buildBasketSellLeg(
 
   const { inputs } = selectSells(holdings, opts);
   if (inputs.length === 0) {
-    return { transactions: [], details: null, holdings };
+    return { transactions: [], fallbackGasByIndex: {}, details: null, holdings };
   }
 
   const [quotes, ...allowanceReads] = await Promise.all([
@@ -231,8 +256,14 @@ export async function buildBasketSellLeg(
   }));
   transactions.push(encodeBasketSell(sellInputs, args.recipient, deadline));
 
+  const sellUrFallbackGas =
+    SELL_UR_EXECUTE_BASE_GAS + SELL_UR_EXECUTE_PER_LEG_GAS * BigInt(inputs.length);
+
   return {
     transactions,
+    fallbackGasByIndex: {
+      [transactions.length - 1]: sellUrFallbackGas,
+    },
     details: {
       slippageBps,
       validUntil: Number(deadline),

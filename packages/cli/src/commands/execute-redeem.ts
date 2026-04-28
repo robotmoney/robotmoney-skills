@@ -101,6 +101,7 @@ export async function executeRedeem(
   }
 
   let basketDetails: Awaited<ReturnType<typeof buildBasketSellLeg>>['details'] = null;
+  const fallbackGasByIndex: Record<number, bigint> = {};
   if (wantsBasketSell) {
     const sellArgs: Parameters<typeof buildBasketSellLeg>[1] = {
       user: wallet.address,
@@ -112,6 +113,10 @@ export async function executeRedeem(
     if (options.sellAmounts) sellArgs.sellAmountsDecimal = options.sellAmounts;
     if (options.slippageBps !== undefined) sellArgs.slippageBps = options.slippageBps;
     const sellLeg = await buildBasketSellLeg(client, sellArgs);
+    const offset = transactions.length;
+    for (const [localIdx, gas] of Object.entries(sellLeg.fallbackGasByIndex)) {
+      fallbackGasByIndex[offset + Number(localIdx)] = gas;
+    }
     transactions.push(...sellLeg.transactions);
     basketDetails = sellLeg.details;
   }
@@ -135,6 +140,7 @@ export async function executeRedeem(
       ...(options.storagePath !== undefined ? { storagePath: options.storagePath } : {}),
     },
     transactions,
+    { fallbackGasByIndex },
   );
 
   const fee = grossAssets >= netAssets ? grossAssets - netAssets : 0n;
