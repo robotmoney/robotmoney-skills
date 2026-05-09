@@ -105,6 +105,21 @@ export const BASKET: BasketTokenConfig[] = [
       { version: 'v3', fee: 10000 },
     ],
   },
+  {
+    // PEAQ on Base is a LayerZero OFT (PeaqOFT). Only Uniswap V3 PEAQ/WETH
+    // (fee=3000, pool 0x99188F17...4aD1) has meaningful book — ~$29K. Quoter
+    // confirms $250 fills at ~1.7% slippage (well under the 3% default), and
+    // basket per-leg sizing at 7 tokens caps the PEAQ leg at ~$35 in the worst
+    // case ($5K cap * 5% / 7), which barely registers in the pool.
+    symbol: 'PEAQ',
+    address: '0x9B56B112BbD6343a8961a093315A9A60b8cB1F36',
+    decimals: 18,
+    pathTokens: [USDC, WETH, '0x9B56B112BbD6343a8961a093315A9A60b8cB1F36'],
+    hops: [
+      { version: 'v3', fee: 500 },
+      { version: 'v3', fee: 3000 },
+    ],
+  },
 ];
 
 // 95/5 split between vault leg and basket leg of a deposit.

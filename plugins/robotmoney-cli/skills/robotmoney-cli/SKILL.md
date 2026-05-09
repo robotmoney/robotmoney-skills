@@ -25,7 +25,7 @@ npx @robotmoney/cli <command> [options]
 
 **Vault:** `0x4f835c9f54bcf17daf9040f60cb72951ccbb49dd` on Base — a multi-adapter ERC-4626 vault that splits USDC across Morpho Gauntlet USDC Prime, Aave V3, and Compound V3 by dynamic equal weight.
 
-**Basket leg (new):** `prepare-deposit` and `execute-deposit` now also buy a fixed 6-token agent basket (VIRTUAL, ROBOT, BNKR, JUNO, ZFI, GIZA) atomically via Uniswap UniversalRouter — 95% to vault, 5% across the basket by default. `prepare-redeem` / `prepare-withdraw` (and their `execute-*` siblings) can sell back any subset. See [references/basket.md](references/basket.md).
+**Basket leg:** `prepare-deposit` and `execute-deposit` also buy a fixed 7-token agent basket (VIRTUAL, ROBOT, BNKR, JUNO, ZFI, GIZA, PEAQ) atomically via Uniswap UniversalRouter — 95% to vault, 5% across the basket by default. `prepare-redeem` / `prepare-withdraw` (and their `execute-*` siblings) can sell back any subset. See [references/basket.md](references/basket.md).
 
 **RPC:** defaults to a built-in pool of 5 free Base endpoints with automatic fallback. Users don't need their own RPC URL. Pass `--rpc-url <url>` or set `RPC_URL` if you want to override.
 

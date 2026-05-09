@@ -1,12 +1,12 @@
 # Basket leg
 
-Every `prepare-deposit` and `execute-deposit` now mints rmUSDC **and** atomically buys a fixed 6-token "agent token" basket via Uniswap UniversalRouter on Base. Every `prepare-redeem`, `execute-redeem`, `prepare-withdraw`, and `execute-withdraw` can sell user-specified portions of those holdings back to USDC in the same call as the vault leg.
+Every `prepare-deposit` and `execute-deposit` mints rmUSDC **and** atomically buys a fixed 7-token "agent token" basket via Uniswap UniversalRouter on Base. Every `prepare-redeem`, `execute-redeem`, `prepare-withdraw`, and `execute-withdraw` can sell user-specified portions of those holdings back to USDC in the same call as the vault leg.
 
 This document explains the basket: which tokens are in it, how the splits work, the new flags, and the response shape.
 
 ## Composition
 
-The basket is hardcoded — 6 agent tokens on Base. Composition changes only via a new release.
+The basket is hardcoded — 7 agent tokens on Base. Composition changes only via a new release.
 
 | Symbol | Address | Path to USDC | Notes |
 |---|---|---|---|
@@ -16,12 +16,13 @@ The basket is hardcoded — 6 agent tokens on Base. Composition changes only via
 | JUNO | `0x4E6c9f48f73E54EE5F3AB7e2992B2d733D0d0b07` | V3 direct USDC, fee=10000 | Juno Agent |
 | ZFI | `0xD080eD3c74a20250a2c9821885203034ACD2D5ae` | USDC → WETH (V3 fee=500) → ZFI (V3 fee=10000) | ZyFAI |
 | GIZA | `0x590830dFDf9A3F68aFCDdE2694773dEBDF267774` | USDC → WETH (V3 fee=500) → GIZA (V3 fee=10000) | Giza |
+| PEAQ | `0x9B56B112BbD6343a8961a093315A9A60b8cB1F36` | USDC → WETH (V3 fee=500) → PEAQ (V3 fee=3000) | peaq DePIN L1 (LayerZero OFT on Base); thinnest book in the basket |
 
 Routing was discovered by `scripts/find-pools.ts` and `scripts/find-v4-key.ts`. ROBOT's V4 PoolKey was extracted from the on-chain `Initialize` event: `fee=0x800000, tickSpacing=200, hooks=0xbB7784A4d481184283Ed89619A3e3ed143e1Adc0`.
 
 ## Defaults
 
-- **Split**: 95% to vault, 5% to basket. Basket is divided **equally** across the 6 tokens (~83 bps each). Dust from integer division goes to the first leg.
+- **Split**: 95% to vault, 5% to basket. Basket is divided **equally** across the 7 tokens (~71 bps each). Dust from integer division goes to the first leg.
 - **Slippage**: `--slippage-bps 300` (3%) on every basket swap. Conservative default that survives Clanker dynamic-fee spikes (fees can hit 80% during volatility) without rekting V3 legs.
 - **Quote validity**: 5 minutes. The UR `execute()` deadline embedded in the calldata is `now + 5min` at prepare time. The response includes a `validUntil` (unix seconds) — re-quote if the user takes longer than that to sign.
 - **Approvals**: USDC and each basket token are approved to **Permit2** (max), then **Permit2 approves UniversalRouter** for that token (max uint160, expiration = now + 1 year). The CLI only emits approval txs that are missing or expired.
@@ -103,7 +104,7 @@ Both `prepare-*` and `execute-*` return the existing top-level keys plus a `bask
         "minAmountOut": "1170272346875789944",
         "decimals": 18
       },
-      /* ... 5 more quotes ... */
+      /* ... 6 more quotes ... */
     ]
   }
 }
@@ -170,11 +171,11 @@ Worst case (all approvals fresh) for a 95/5 deposit:
 2. `vault.deposit(95, receiver)` — vault leg
 3. `USDC.approve(Permit2, max)` — basket leg approval (one-time forever per wallet)
 4. `Permit2.approve(USDC → UR, max, +1y)` — basket leg approval (one-time per wallet/year)
-5. `UR.execute(...)` — atomic 6-leg basket buy
+5. `UR.execute(...)` — atomic 7-leg basket buy
 
 Steps 3–4 are skipped on subsequent deposits. Steady-state cost: 3 txs per deposit (or 1 tx if Permit2 approvals are fresh from a prior deposit).
 
-A full sell of all 6 basket tokens (`--sell-all`) emits up to **2 approvals × 6 tokens + 1 UR.execute = 13 txs** the first time. Subsequent sells reuse the approvals.
+A full sell of all 7 basket tokens (`--sell-all`) emits up to **2 approvals × 7 tokens + 1 UR.execute = 15 txs** the first time. Subsequent sells reuse the approvals.
 
 ## Universal Router calldata structure
 
@@ -184,7 +185,7 @@ For the curious, the `UR.execute()` calldata uses these commands:
 - `0x10 V4_SWAP` — used only for ROBOT's V4 leg, wrapping `SWAP_EXACT_IN_SINGLE` + `SETTLE_ALL` + `TAKE_ALL` actions
 - `0x04 SWEEP` — refunds any leftover USDC (or token, on sells) to the recipient
 
-The full UR command for a deposit is: `[V3, V3, V4, V3, V3, V3, V3, SWEEP]` — VIRTUAL (V3), ROBOT V3 leg + V4 leg, then BNKR/JUNO/ZFI/GIZA (each V3), then SWEEP.
+The full UR command for a deposit is: `[V3, V3, V4, V3, V3, V3, V3, V3, SWEEP, SWEEP]` — VIRTUAL (V3), ROBOT V3 leg + V4 leg, then BNKR/JUNO/ZFI/GIZA/PEAQ (each V3), then SWEEP USDC + SWEEP WETH.
 
 ## Open items / known limits
 

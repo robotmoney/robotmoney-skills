@@ -82,7 +82,7 @@ describe('encodeBasketBuy', () => {
       deadline: DEADLINE,
       slippageBps: 300,
       quotes: fakeQuotes,
-      totalUsdc: 6_000_000n, // $6 split 6 ways = $1 each
+      totalUsdc: 7_000_000n, // $7 split 7 ways = $1 each
     });
     expect(unsignedTx.to).toBe(UNIVERSAL_ROUTER);
     expect(unsignedTx.value).toBe('0');
@@ -90,30 +90,30 @@ describe('encodeBasketBuy', () => {
     expect(perLegUsdc).toBe(1_000_000n);
   });
 
-  test('command sequence: 5 V3 swaps + 1 V3+V4 (ROBOT) + final SWEEP', () => {
+  test('command sequence: 6 V3 swaps + 1 V3+V4 (ROBOT) + final SWEEP', () => {
     const { unsignedTx } = encodeBasketBuy({
       recipient: RECIPIENT,
       deadline: DEADLINE,
       slippageBps: 300,
       quotes: fakeQuotes,
-      totalUsdc: 6_000_000n,
+      totalUsdc: 7_000_000n,
     });
 
     const decoded = decodeFunctionData({ abi: UR_EXECUTE_ABI, data: unsignedTx.data });
     const [commands, inputs, deadline] = decoded.args as [`0x${string}`, `0x${string}`[], bigint];
     expect(deadline).toBe(DEADLINE);
 
-    // 5 V3-only legs (VIRTUAL/BNKR/JUNO/ZFI/GIZA) + ROBOT (V3+V4 = 2) +
-    // SWEEP USDC + SWEEP WETH (residual from ROBOT V3 over-delivery) = 9.
+    // 6 V3-only legs (VIRTUAL/BNKR/JUNO/ZFI/GIZA/PEAQ) + ROBOT (V3+V4 = 2) +
+    // SWEEP USDC + SWEEP WETH (residual from ROBOT V3 over-delivery) = 10.
     const cmdHex = commands.slice(2);
-    expect(cmdHex.length).toBe(9 * 2);
+    expect(cmdHex.length).toBe(10 * 2);
     const codes = [];
     for (let i = 0; i < cmdHex.length; i += 2) {
       codes.push(parseInt(cmdHex.slice(i, i + 2), 16));
     }
-    // [V3, V3 (ROBOT v3 leg), V4 (ROBOT v4 leg), V3, V3, V3, V3, SWEEP USDC, SWEEP WETH]
-    expect(codes).toEqual([0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x04, 0x04]);
-    expect(inputs.length).toBe(9);
+    // [V3, V3 (ROBOT v3 leg), V4 (ROBOT v4 leg), V3, V3, V3, V3, V3, SWEEP USDC, SWEEP WETH]
+    expect(codes).toEqual([0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x04]);
+    expect(inputs.length).toBe(10);
   });
 
   test('per-leg USDC division allocates dust to first leg', () => {
@@ -124,9 +124,9 @@ describe('encodeBasketBuy', () => {
       quotes: fakeQuotes,
       totalUsdc: 1_000_001n, // 1 USDC + 1 dust
     });
-    expect(perLegUsdc).toBe(166_666n);
-    // dust = 1_000_001 - 166_666 * 6 = 5
-    // First leg gets 166_666 + 5 = 166_671. Verifying via decoded tx is fiddly;
+    expect(perLegUsdc).toBe(142_857n);
+    // dust = 1_000_001 - 142_857 * 7 = 2
+    // First leg gets 142_857 + 2 = 142_859. Verifying via decoded tx is fiddly;
     // here we just assert the per-leg calc is what we expect.
   });
 

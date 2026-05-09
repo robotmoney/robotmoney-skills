@@ -6,6 +6,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-05-09
+
+### Added
+- **PEAQ added to the agent basket.** `0x9B56B112BbD6343a8961a093315A9A60b8cB1F36` (PeaqOFT, the LayerZero OFT for peaq's DePIN/machine-economy L1, on Base). Routed USDC → WETH (V3 fee=500) → PEAQ (V3 fee=3000) via the `0x99188F17...4aD1` pool. Quoter confirms $250 fills at ~1.7% slippage, comfortably under the 3% default.
+
+### Changed
+- **Basket grows from 6 → 7 tokens.** Per-leg allocation rebalances from ~83 bps each to ~71 bps each (5% / 7). The full UR command sequence on a deposit becomes `[V3, V3, V4, V3, V3, V3, V3, V3, SWEEP, SWEEP]` (10 commands total, was 9). Fresh-Permit2 worst-case sell tx count rises from 13 → 15 (2 approvals × 7 tokens + 1 UR.execute).
+
 ## [0.2.1] — 2026-04-28
 
 ### Fixed

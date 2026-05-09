@@ -35,7 +35,7 @@ const MAX_U160 = (1n << 160n) - 1n;
 // landed yet. Used only as a fallback by execute.ts; real estimates take
 // precedence whenever they succeed.
 //
-// Buy: 6 legs of V3 + 1 mixed V3->V4 + sweeps. Observed real cost ~1M-1.1M.
+// Buy: 7 legs of V3 + 1 mixed V3->V4 + sweeps. Observed real cost ~1.1M-1.3M.
 // Sell: scales with token count. Per-leg covers V3 reverse (~250k) or V4->V3
 // reverse with settle/take (~400k) plus sweep.
 const BUY_UR_EXECUTE_FALLBACK_GAS = 1_500_000n;

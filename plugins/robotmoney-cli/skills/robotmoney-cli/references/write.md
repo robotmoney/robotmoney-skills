@@ -5,7 +5,7 @@ Two families of write commands:
 - **`prepare-*`** returns unsigned calldata. The caller signs and broadcasts externally.
 - **`execute-*`** signs and broadcasts end-to-end via OWS. Returns confirmed transaction hashes.
 
-> **Heads up: basket leg.** Since v0.2.0, every `prepare-deposit` / `execute-deposit` also buys a 6-token basket (5% of the deposit by default), and `prepare-redeem` / `prepare-withdraw` (and their execute siblings) accept basket-sell flags. Responses include an extra `basket` object with per-leg quotes. New flags below — full spec in [`references/basket.md`](basket.md).
+> **Heads up: basket leg.** Since v0.2.0, every `prepare-deposit` / `execute-deposit` also buys a 7-token basket (5% of the deposit by default; PEAQ added in v0.3.0), and `prepare-redeem` / `prepare-withdraw` (and their execute siblings) accept basket-sell flags. Responses include an extra `basket` object with per-leg quotes. New flags below — full spec in [`references/basket.md`](basket.md).
 
 Every `prepare-*` command returns the same top-level shape:
 
@@ -45,7 +45,7 @@ npx @robotmoney/cli prepare-deposit --chain base \
   [--slippage-bps 300]
 ```
 
-Default behavior splits 95% to the vault + 5% across the 6-token basket. Pass
+Default behavior splits 95% to the vault + 5% across the 7-token basket. Pass
 `--no-basket` for the legacy vault-only flow, `--basket-only` to skip the vault
 leg, or `--slippage-bps N` (default 300 = 3%) to tighten/loosen basket slippage.
 
@@ -97,12 +97,12 @@ When the basket leg is included, the response also has a `basket` field:
   "simulation": { /* ... */ },
   "basket": {
     "totalUsdc": "5",
-    "perLegUsdc": "0.833333",
+    "perLegUsdc": "0.714285",
     "slippageBps": 300,
     "validUntil": 1777323066,
     "quotes": [
       { "symbol": "VIRTUAL", "address": "0x0b3e...", "amountOut": "1206466336985350458", "minAmountOut": "1170272346875789944", "decimals": 18 },
-      /* ... 5 more quotes ... */
+      /* ... 6 more quotes ... */
     ]
   }
 }
@@ -110,7 +110,7 @@ When the basket leg is included, the response also has a `basket` field:
 
 The transactions array contains, in order: USDC→vault approval (if needed),
 `vault.deposit`, USDC→Permit2 approval (if needed), Permit2→UR approval (if
-needed), and the single `UR.execute()` for the atomic 6-leg basket buy.
+needed), and the single `UR.execute()` for the atomic 7-leg basket buy.
 
 ---
 

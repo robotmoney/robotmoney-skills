@@ -21,6 +21,7 @@ const HOLDINGS: BasketHolding[] = [
   mkHolding('JUNO', 5_000_000_000_000_000_000n), // 5 JUNO
   mkHolding('ZFI', 0n),
   mkHolding('GIZA', 0n),
+  mkHolding('PEAQ', 0n),
 ];
 
 describe('selectSells', () => {
@@ -73,6 +74,7 @@ describe('selectSells', () => {
     expect(inputs.find((i) => i.token.symbol === 'BNKR')).toBeUndefined();
     expect(inputs.find((i) => i.token.symbol === 'ZFI')).toBeUndefined();
     expect(inputs.find((i) => i.token.symbol === 'GIZA')).toBeUndefined();
+    expect(inputs.find((i) => i.token.symbol === 'PEAQ')).toBeUndefined();
   });
 
   test('throws on unknown symbol', () => {

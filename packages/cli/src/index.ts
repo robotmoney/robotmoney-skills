@@ -75,7 +75,7 @@ export function buildProgram(): Command {
     .action(async (opts: RawGlobalOpts) => runOrDie(() => getApy(parseGlobal(opts))));
 
   attachGlobalFlags(program.command('get-basket-holdings'))
-    .description('Get the user\'s balances of the 6 basket tokens with USDC valuation')
+    .description('Get the user\'s balances of the 7 basket tokens with USDC valuation')
     .requiredOption('--user-address <address>', 'EVM address of the holder')
     .option('--no-pricing', 'skip USD valuation (faster, no quoter calls)')
     .action(
@@ -90,7 +90,7 @@ export function buildProgram(): Command {
 
   attachGlobalFlags(program.command('prepare-deposit'))
     .description(
-      'Prepare unsigned deposit txs: 95% to vault + 5% across a 6-token agent basket (USDC approval included)',
+      'Prepare unsigned deposit txs: 95% to vault + 5% across a 7-token agent basket (USDC approval included)',
     )
     .requiredOption('--user-address <address>', 'EVM address of the depositor')
     .requiredOption('--amount <usdc>', 'USDC amount to deposit (decimal)')

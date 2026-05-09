@@ -8,7 +8,7 @@ Autonomous stablecoin yield for AI agents and machines. Deposit USDC into the [R
 
 **robotmoney-cli** — A conversational skill that lets Claude (or any skill/plugin-compatible agent) query the Robot Money vault and prepare unsigned transactions. Check APY, read positions, deposit, redeem. Optional bring-your-own-wallet via [Open Wallet Standard](https://openwallet.sh/) (OWS) for agents that don't have one yet.
 
-Every deposit auto-splits **95% to the vault + 5% across a fixed 6-token agent basket** (VIRTUAL, ROBOT, BNKR, JUNO, ZFI, GIZA) atomically via Uniswap UniversalRouter on Base. Basket tokens land directly in the receiver's wallet — no share token, no claim. See [`references/basket.md`](plugins/robotmoney-cli/skills/robotmoney-cli/references/basket.md) for the full token list, defaults, flags, and response shapes.
+Every deposit auto-splits **95% to the vault + 5% across a fixed 7-token agent basket** (VIRTUAL, ROBOT, BNKR, JUNO, ZFI, GIZA, PEAQ) atomically via Uniswap UniversalRouter on Base. Basket tokens land directly in the receiver's wallet — no share token, no claim. See [`references/basket.md`](plugins/robotmoney-cli/skills/robotmoney-cli/references/basket.md) for the full token list, defaults, flags, and response shapes.
 
 ## Quickstart
 
@@ -38,7 +38,7 @@ Works with Cursor, Codex, any MCP-compatible agent that can invoke a shell, or d
 | `get-vault` | Get full vault state: caps, fees, share price, totals; `--verbose` for per-adapter breakdown |
 | `get-balance` | Get a user's rmUSDC balance and USDC-equivalent value |
 | `get-apy` | Get blended APY across Morpho, Aave, and Compound |
-| `get-basket-holdings` | Get all 6 basket-token balances for a user + per-token USDC valuation |
+| `get-basket-holdings` | Get all 7 basket-token balances for a user + per-token USDC valuation |
 | **PREPARE** (unsigned calldata — caller signs externally) | |
 | `prepare-deposit` | Prepare an unsigned deposit (95% vault + 5% basket). Flags: `--no-basket`, `--basket-only`, `--slippage-bps` |
 | `prepare-redeem` | Prepare an unsigned redeem + optional basket sells. Flags: `--sell-all`, `--sell-percent`, `--sell-tokens`, `--sell-amounts`. `--shares 0` skips vault leg |
@@ -184,7 +184,7 @@ All contracts verified on BaseScan.
 
 ## Basket leg
 
-Every deposit additionally allocates 5% (default, configurable via `--no-basket` / `--basket-only`) across a fixed 6-token agent basket:
+Every deposit additionally allocates 5% (default, configurable via `--no-basket` / `--basket-only`) across a fixed 7-token agent basket:
 
 | Symbol | Address | Path | Notes |
 |---|---|---|---|
@@ -194,6 +194,7 @@ Every deposit additionally allocates 5% (default, configurable via `--no-basket`
 | JUNO | `0x4E6c9f48f73E54EE5F3AB7e2992B2d733D0d0b07` | V3 USDC, fee=10000 | Juno Agent |
 | ZFI | `0xD080eD3c74a20250a2c9821885203034ACD2D5ae` | USDC→WETH (V3 500) → ZFI (V3 10000) | ZyFAI |
 | GIZA | `0x590830dFDf9A3F68aFCDdE2694773dEBDF267774` | USDC→WETH (V3 500) → GIZA (V3 10000) | Giza |
+| PEAQ | `0x9B56B112BbD6343a8961a093315A9A60b8cB1F36` | USDC→WETH (V3 500) → PEAQ (V3 3000) | peaq DePIN L1 (LayerZero OFT on Base) |
 
 Routes are routed via Uniswap UniversalRouter on Base, atomic in one `execute()` call. Default basket slippage is 3% (`--slippage-bps 300`); each leg's quote and minOut are returned in the prepare-* output. See [`references/basket.md`](plugins/robotmoney-cli/skills/robotmoney-cli/references/basket.md) for the full spec including sell flags and Permit2 approval flow.
 

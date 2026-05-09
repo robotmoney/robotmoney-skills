@@ -6,7 +6,7 @@
  *   1. Start anvil --fork-url https://mainnet.base.org
  *   2. Fund a test wallet with ETH (anvil_setBalance) and USDC (impersonate a whale)
  *   3. Run prepare-deposit's tx sequence end-to-end (vault leg + basket buy)
- *   4. Verify rmUSDC shares + 6 basket token balances all increased
+ *   4. Verify rmUSDC shares + 7 basket token balances all increased
  *   5. Run prepare-redeem's --sell-all sequence
  *   6. Verify USDC came back, basket balances dropped
  *
@@ -342,7 +342,7 @@ async function main() {
     const allBasketReceived = Object.values(basketBalances).every((b) => b > 0n);
     if (!allBasketReceived) {
       console.error(red('FAIL: some basket tokens never landed in the wallet'));
-      throw new Error('basket buy did not fill all 6 legs');
+      throw new Error('basket buy did not fill all 7 legs');
     }
 
     // ---------- Build sell txs ----------
